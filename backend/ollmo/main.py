@@ -4,10 +4,12 @@ Port: 9000
 """
 import json
 import os
+import asyncio
 import psutil
 import httpx
 import docker as docker_sdk
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,11 +21,30 @@ from core.vram import get_vram_usage, get_gpu_utilization
 from core.docker_control import get_status, start, stop, get_logs, all_status
 from core.paths import get_all_paths, repoint, get_storage_stats
 from core.resources import projected_vram, check_alerts
+from core.enforcer import enforcement_loop, active_modes as _active_modes
 
 OLLAMA_URL        = os.environ.get("OLLAMA_URL",        "http://localhost:11434")
 COMFYUI_USER_PATH = Path(os.environ.get("COMFYUI_USER_PATH", str(Path.home() / "ComfyUI" / "user")))
 
-app = FastAPI(title="oLLMo", version="0.1.0")
+def _services_live():
+    return json.loads((CONFIG_DIR / "services.json").read_text())["services"]
+
+def _docker_client():
+    return docker_sdk.from_env()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(
+        enforcement_loop(_services_live, _docker_client)
+    )
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+app = FastAPI(title="oLLMo", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +59,7 @@ TEMPLATES_DIR  = Path(__file__).parent.parent.parent / "templates"
 PATHS_CFG_FILE   = CONFIG_DIR / "paths.json"
 ROUTING_CFG_FILE = CONFIG_DIR / "routing.json"
 MODES_CFG_FILE   = CONFIG_DIR / "modes.json"
+NODES_CFG_FILE   = CONFIG_DIR / "nodes.json"
 
 def _modes() -> dict:
     """Always read fresh — modes.json is mutable at runtime."""
@@ -141,12 +163,20 @@ def activate_mode(name: str, force: bool = False):
         else:
             results.append(stop(svc["container"]))
 
+    _active_modes.add(name)
+
     return {
         "mode":       name,
         "results":    results,
         "projection": projection,
         "warning":    projection["warning"],
     }
+
+
+@app.post("/modes/{name}/deactivate")
+def deactivate_mode(name: str):
+    _active_modes.discard(name)
+    return {"deactivated": name, "active_modes": list(_active_modes)}
 
 
 @app.get("/modes/{name}/allocations")
@@ -301,6 +331,38 @@ def config_paths_list():
     return get_all_paths(cfg)
 
 
+@app.post("/config/paths")
+def config_paths_add(body: dict):
+    """body: {"name": "mymodels", "label": "My Models", "target": "/data/models", "containers": ["comfyui"]}"""
+    name   = body.get("name", "").strip().lower().replace(" ", "-")
+    label  = body.get("label", name)
+    target = body.get("target", "")
+    ctrs   = body.get("containers", [])
+    if not name or not target:
+        return {"error": "name and target are required"}
+    cfg = json.loads(PATHS_CFG_FILE.read_text())
+    if name in cfg:
+        return {"error": f"Path '{name}' already exists — use POST /config/paths/{name} to repoint"}
+    link = f"/mnt/oaio/{name}"
+    cfg[name] = {"label": label, "link": link, "default_target": target, "containers": ctrs}
+    PATHS_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    result = repoint(link, target)
+    return {**result, "name": name, "label": label, "containers": ctrs}
+
+
+@app.delete("/config/paths/{name}")
+def config_paths_delete(name: str):
+    cfg = json.loads(PATHS_CFG_FILE.read_text())
+    if name not in cfg:
+        return {"error": f"Unknown path: {name}"}
+    link = Path(cfg[name]["link"])
+    if link.is_symlink():
+        link.unlink()
+    del cfg[name]
+    PATHS_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    return {"deleted": name}
+
+
 @app.post("/config/paths/{name}")
 def config_paths_set(name: str, body: dict):
     """body: {"target": "/new/path"}"""
@@ -327,9 +389,70 @@ def config_routing_set(body: dict):
     return current
 
 
+@app.get("/config/nodes")
+def config_nodes_get():
+    return json.loads(NODES_CFG_FILE.read_text())
+
+
+@app.post("/config/nodes")
+def config_nodes_set(body: dict):
+    cfg = json.loads(NODES_CFG_FILE.read_text())
+    cfg.update(body)
+    NODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    return cfg
+
+
 @app.get("/config/storage/stats")
 def config_storage_stats():
     return get_storage_stats()
+
+
+@app.get("/enforcement/status")
+def enforcement_status():
+    """Current enforcement state — thresholds, live VRAM, what would be killed next."""
+    vram = get_vram_usage()
+    pct  = vram.get("percent", 0) / 100
+    services = _services_live()
+
+    # Determine kill order (for UI visibility)
+    candidates = []
+    try:
+        client = _docker_client()
+        for svc_name, svc in services.items():
+            ctr = svc.get("container")
+            if not ctr:
+                continue
+            limit_mode = svc.get("limit_mode", "soft")
+            try:
+                c      = client.containers.get(ctr)
+                status = c.status
+            except Exception:
+                status = "unknown"
+            candidates.append({
+                "service":    svc_name,
+                "container":  ctr,
+                "priority":   svc.get("priority", 3),
+                "limit_mode": limit_mode,
+                "status":     status,
+                "would_kill": limit_mode == "hard" and status == "running",
+            })
+        candidates.sort(key=lambda x: -x["priority"])
+    except Exception:
+        pass
+
+    from core.resources import WARN_THRESHOLD, HARD_THRESHOLD, VRAM_TOTAL_GB
+    return {
+        "vram":            vram,
+        "pct":             round(pct * 100, 1),
+        "warn_threshold":  WARN_THRESHOLD,
+        "hard_threshold":  HARD_THRESHOLD,
+        "warn_at_gb":      round(VRAM_TOTAL_GB * WARN_THRESHOLD, 1),
+        "hard_at_gb":      round(VRAM_TOTAL_GB * HARD_THRESHOLD, 1),
+        "enforcing":       pct >= HARD_THRESHOLD and bool(_active_modes),
+        "active_modes":    list(_active_modes),
+        "paused":          not bool(_active_modes),
+        "kill_order":      candidates,
+    }
 
 
 # ── Serve frontend — must be last (catches all unmatched paths) ───────────────

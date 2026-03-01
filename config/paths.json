@@ -1,10 +1,18 @@
 {
-  "models":    { "label": "ComfyUI Models", "link": "/mnt/oaio/models",   "default_target": "/mnt/storage/ai/comfyui/models",        "containers": ["comfyui"] },
-  "lora":      { "label": "LoRA Weights",   "link": "/mnt/oaio/lora",     "default_target": "/mnt/storage/ai/comfyui/models/loras",  "containers": ["comfyui"] },
-  "audio":     { "label": "Audio Models",   "link": "/mnt/oaio/audio",    "default_target": "/mnt/storage/ai/audio",                 "containers": ["rvc","kokoro-tts","f5-tts"] },
-  "hf-cache":  { "label": "HF Cache",       "link": "/mnt/oaio/hf-cache", "default_target": "/mnt/storage/ai/audio/huggingface",     "containers": ["f5-tts","comfyui"] },
-  "ref-audio": { "label": "Ref Audio",      "link": "/mnt/oaio/ref-audio","default_target": "/home/oao/reference-audio",             "containers": ["f5-tts"] },
-  "outputs":   { "label": "Render Outputs", "link": "/mnt/oaio/outputs",  "default_target": "/home/oao/ComfyUI/output",              "containers": ["comfyui"] },
-  "ollama":    { "label": "Ollama Models",  "link": "/mnt/oaio/ollama",   "default_target": "/mnt/windows-sata/ollama-models",       "containers": ["ollama"] },
-  "training":  { "label": "Training Data",  "link": "/mnt/oaio/training", "default_target": "/mnt/storage/ai/training",              "containers": [] }
+  "ollama":       { "label": "Ollama Models",        "link": "/mnt/oaio/ollama",        "default_target": "/mnt/windows-sata/ollama-models",      "containers": ["ollama"] },
+  "models":       { "label": "ComfyUI Models",       "link": "/mnt/oaio/models",        "default_target": "/mnt/storage/ai/comfyui/models",       "containers": ["comfyui"] },
+  "lora":         { "label": "LoRA Weights",         "link": "/mnt/oaio/lora",          "default_target": "/mnt/storage/ai/comfyui/models/loras", "containers": ["comfyui"] },
+  "custom-nodes": { "label": "ComfyUI Custom Nodes", "link": "/mnt/oaio/custom-nodes",  "default_target": "/home/oao/ComfyUI/custom_nodes",       "containers": ["comfyui"] },
+  "comfyui-user": { "label": "ComfyUI User",         "link": "/mnt/oaio/comfyui-user",  "default_target": "/home/oao/ComfyUI/user",               "containers": ["comfyui", "oaio"] },
+  "outputs":      { "label": "Render Outputs",       "link": "/mnt/oaio/outputs",       "default_target": "/home/oao/ComfyUI/output",             "containers": ["comfyui"] },
+  "inputs":       { "label": "ComfyUI Inputs",       "link": "/mnt/oaio/inputs",        "default_target": "/home/oao/ComfyUI/input",              "containers": ["comfyui"] },
+  "audio":        { "label": "Audio Models",         "link": "/mnt/oaio/audio",         "default_target": "/mnt/storage/ai/audio",                "containers": ["rvc", "kokoro-tts", "f5-tts"] },
+  "kokoro-voices":{ "label": "Kokoro Voices",        "link": "/mnt/oaio/kokoro-voices", "default_target": "/mnt/storage/ai/audio/kokoro-voices",  "containers": ["kokoro-tts"] },
+  "hf-cache":     { "label": "HF Cache",             "link": "/mnt/oaio/hf-cache",      "default_target": "/mnt/storage/ai/audio/huggingface",    "containers": ["f5-tts", "comfyui"] },
+  "ref-audio":    { "label": "F5 Ref Audio",         "link": "/mnt/oaio/ref-audio",     "default_target": "/home/oao/reference-audio",            "containers": ["f5-tts"] },
+  "rvc-ref":      { "label": "RVC Ref Audio",        "link": "/mnt/oaio/rvc-ref",       "default_target": "/home/oao/Videos/audio/_EDITED",       "containers": ["rvc", "oaio"] },
+  "rvc-weights":  { "label": "RVC Voice Models",     "link": "/mnt/oaio/rvc-weights",   "default_target": "/mnt/storage/ai/audio/rvc-weights",    "containers": ["rvc"] },
+  "rvc-indices":  { "label": "RVC Index Files",      "link": "/mnt/oaio/rvc-indices",   "default_target": "/mnt/storage/ai/audio/rvc-indices",    "containers": ["rvc"] },
+  "swap":         { "label": "Swap / Staging",       "link": "/mnt/oaio/swap",          "default_target": "/mnt/storage/swap",                    "containers": [] },
+  "training":     { "label": "Training Data",        "link": "/mnt/oaio/training",      "default_target": "/mnt/storage/ai/training",             "containers": [] }
 }

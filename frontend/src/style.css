@@ -480,14 +480,82 @@ body {
 
 .path-entry {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 6px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
   background: var(--bg3);
   border-radius: 3px;
   border: 1px solid var(--border);
   min-width: 0;
 }
+
+.path-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.path-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.path-status.ok      { background: var(--green); }
+.path-status.missing { background: var(--red); }
+
+.path-ctrs {
+  display: flex;
+  gap: 4px;
+  padding-left: 14px;
+}
+
+.ctr-badge {
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: #1e1e2a;
+  color: #8888cc;
+  border: 1px solid #2a2a44;
+  text-transform: lowercase;
+}
+
+.path-del-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.path-del-btn:hover { color: var(--red); }
+
+.path-add-btn { margin-top: 4px; font-size: 10px; }
+
+.path-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin-top: 4px;
+}
+
+.path-add-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10px;
+  width: 100%;
+}
+.path-add-input:focus { outline: none; border-color: var(--accent); }
 
 .path-entry-label {
   color: var(--text-dim);

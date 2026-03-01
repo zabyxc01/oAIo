@@ -8,7 +8,6 @@ networks:
     driver: bridge
 
 volumes:
-  ollama:
   open-webui:
 
 services:
@@ -22,7 +21,7 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - /mnt/windows-sata/ollama:/root/.ollama
+      - /mnt/oaio/ollama:/root/.ollama
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -60,7 +59,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - /mnt/storage/ai/audio/kokoro-voices:/models
+      - /mnt/oaio/kokoro-voices:/models
 
   # ── RVC (voice conversion proxy) ─────────────────────────────────────────────
   rvc:
@@ -72,8 +71,11 @@ services:
       - "7865:7865"
       - "8001:8001"
     volumes:
-      - /mnt/storage/ai/audio:/models
-      - /home/oao/Videos/audio/_EDITED:/rvc/audio
+      - /mnt/oaio/audio:/models
+      - /mnt/oaio/rvc-ref:/rvc/audio
+      - /mnt/oaio/rvc-weights:/rvc/assets/weights
+      - /mnt/oaio/rvc-indices:/rvc/assets/indices
+      - ./docker/rvc/rvc_proxy.py:/rvc/rvc_proxy.py
     environment:
       - KOKORO_URL=http://kokoro-tts:8000
     devices:
@@ -93,8 +95,8 @@ services:
     ports:
       - "7860:7860"
     volumes:
-      - /mnt/storage/ai/audio/huggingface:/hf-cache
-      - /home/oao/reference-audio:/ref-audio
+      - /mnt/oaio/hf-cache:/hf-cache
+      - /mnt/oaio/ref-audio:/ref-audio
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -112,12 +114,12 @@ services:
     ports:
       - "8188:8188"
     volumes:
-      - /mnt/storage/ai/comfyui/models:/ComfyUI/models
-      - /home/oao/ComfyUI/custom_nodes:/ComfyUI/custom_nodes
-      - /home/oao/ComfyUI/user:/ComfyUI/user
-      - /home/oao/ComfyUI/output:/ComfyUI/output
-      - /home/oao/ComfyUI/input:/ComfyUI/input
-      - /mnt/storage/ai/audio/huggingface:/hf-cache
+      - /mnt/oaio/models:/ComfyUI/models
+      - /mnt/oaio/custom-nodes:/ComfyUI/custom_nodes
+      - /mnt/oaio/comfyui-user:/ComfyUI/user
+      - /mnt/oaio/outputs:/ComfyUI/output
+      - /mnt/oaio/inputs:/ComfyUI/input
+      - /mnt/oaio/hf-cache:/hf-cache
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -141,10 +143,9 @@ services:
       - "8002:8002"    # oAudio API
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/rocm-smi:/usr/bin/rocm-smi:ro
-      - /opt/rocm/lib:/opt/rocm/lib:ro
-      - /home/oao/Videos/audio/_EDITED:/rvc/audio
-      - /home/oao/ComfyUI/user:/comfyui-user:ro
+      - /sys/class/drm:/sys/class/drm:ro
+      - /mnt/oaio/rvc-ref:/rvc/audio
+      - /mnt/oaio/comfyui-user:/comfyui-user:ro
       - ./templates:/app/templates
       - /mnt/oaio:/mnt/oaio
     devices:
@@ -153,9 +154,10 @@ services:
     group_add:
       - video
     environment:
-      - LD_LIBRARY_PATH=/opt/rocm/lib
       - KOKORO_URL=http://kokoro-tts:8000
       - RVC_PROXY=http://rvc:8001
+      - RVC_GRADIO=http://rvc:7865
+      - F5_TTS_URL=http://f5-tts:7860
       - OUTPUT_BASE=/rvc/audio
       - OLLAMA_URL=http://ollama:11434
       - COMFYUI_USER_PATH=/comfyui-user

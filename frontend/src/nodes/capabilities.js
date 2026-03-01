@@ -7,7 +7,7 @@
  *   oAIo/tts-voice   — inside Kokoro
  */
 
-const OLLMO_API_CAP = window.location.origin;
+// OLLMO_API defined globally in index.html
 
 // ── Workflow tag detection ───────────────────────────────────────────────────
 function tagWorkflow(name) {
@@ -63,7 +63,7 @@ function tagWorkflow(name) {
   };
 
   LLMModelNode.prototype._load = async function () {
-    await fetch(`${OLLMO_API_CAP}/services/ollama/models/${encodeURIComponent(this._name)}/load`,
+    await fetch(`${OLLMO_API}/services/ollama/models/${encodeURIComponent(this._name)}/load`,
       { method: "POST" });
     this._loaded = true;
     this.setDirtyCanvas(true);
@@ -136,7 +136,7 @@ function tagWorkflow(name) {
   };
 
   VoiceModelNode.prototype._activate = async function () {
-    await fetch(`${OLLMO_API_CAP}/services/rvc/models/${encodeURIComponent(this._file)}/activate`,
+    await fetch(`${OLLMO_API}/services/rvc/models/${encodeURIComponent(this._file)}/activate`,
       { method: "POST" });
     // mark active, deactivate siblings — sub-graph refresh handles this
     window._rvcActiveModel = this._file;
@@ -177,7 +177,7 @@ window.CapabilityNodes = {
     const g = new LGraph();
 
     if (svcName === "ollama") {
-      const models = await fetch(`${OLLMO_API_CAP}/services/ollama/models`)
+      const models = await fetch(`${OLLMO_API}/services/ollama/models`)
         .then(r => r.json()).catch(() => []);
       if (!models.error) {
         models.forEach((m, i) => {
@@ -192,7 +192,7 @@ window.CapabilityNodes = {
       }
 
     } else if (svcName === "comfyui") {
-      const workflows = await fetch(`${OLLMO_API_CAP}/services/comfyui/workflows`)
+      const workflows = await fetch(`${OLLMO_API}/services/comfyui/workflows`)
         .then(r => r.json()).catch(() => []);
       workflows.forEach((w, i) => {
         const node   = LiteGraph.createNode("oAIo/workflow");
@@ -206,7 +206,7 @@ window.CapabilityNodes = {
       });
 
     } else if (svcName === "rvc") {
-      const voices = await fetch(`${OLLMO_API_CAP}/services/rvc/models`)
+      const voices = await fetch(`${OLLMO_API}/services/rvc/models`)
         .then(r => r.json()).catch(() => []);
       if (!voices.error) {
         voices.forEach((v, i) => {

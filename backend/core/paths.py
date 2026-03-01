@@ -29,6 +29,7 @@ def get_all_paths(paths_cfg: dict) -> list[dict]:
             target = str(os.readlink(link))
         except OSError:
             target = None
+        exists = target is not None and Path(target).exists()
         result.append({
             "name":            name,
             "label":           cfg["label"],
@@ -36,6 +37,7 @@ def get_all_paths(paths_cfg: dict) -> list[dict]:
             "target":          target,
             "default_target":  cfg["default_target"],
             "tier":            _infer_tier(target) if target else "missing",
+            "exists":          exists,
             "containers":      cfg.get("containers", []),
         })
     return result

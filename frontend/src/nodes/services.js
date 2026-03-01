@@ -3,8 +3,6 @@
  * One node per service. Registers with LiteGraph.
  */
 
-const OLLMO_API = "http://localhost:9000";
-
 function colorFromPercent(pct) {
   if (pct < 0.6) return "#4caf50";
   if (pct < 0.85) return "#ffb300";

@@ -4,4 +4,4 @@ __pycache__/
 *.pyo
 .env
 templates/*.json
-docs/
+docs/stack/

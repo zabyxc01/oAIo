@@ -2,8 +2,8 @@
  * oAIo — main app
  */
 
-const OLLMO_API = window.location.origin;
-const POLL_MS   = 3000;
+// OLLMO_API defined globally in index.html
+const POLL_MS = 3000;
 
 // --- Litegraph setup ---
 const graph  = new LGraph();
@@ -154,6 +154,7 @@ function deactivateMode(modeId) {
   renderModeTabs();
   updateModeButtons();
   if (selectedNode) loadModeAllocations(selectedNode);
+  fetch(`${OLLMO_API}/modes/${modeId}/deactivate`, { method: "POST" }).catch(() => {});
 }
 
 document.querySelectorAll(".mode-btn").forEach(btn => {
@@ -260,9 +261,20 @@ function showConfigView(view) {
   document.getElementById("config-paths").classList.toggle("hidden", view !== "paths");
 }
 
-// --- Per-node config (persisted to localStorage) ---
+// --- Load persisted configs from server ---
+async function initConfigs() {
+  try {
+    const r = await fetch(`${OLLMO_API}/config/nodes`);
+    const data = await r.json();
+    if (data.nodeConfigs) Object.assign(nodeConfigs, data.nodeConfigs);
+    if (data.modeConfigs) Object.assign(modeConfigs, data.modeConfigs);
+  } catch {}
+}
+initConfigs();
+
+// --- Per-node config (persisted to server) ---
 let selectedNode = null;
-const nodeConfigs = JSON.parse(localStorage.getItem("oaio-nodeConfigs") || "{}");
+let nodeConfigs = {};
 
 ["cfg-memory", "cfg-priority", "cfg-bus", "cfg-limit", "cfg-boot"].forEach(id => {
   const el = document.getElementById(id);
@@ -281,7 +293,10 @@ function saveNodeConfig() {
     boot:     document.getElementById("cfg-boot").checked,
     sub,
   };
-  localStorage.setItem("oaio-nodeConfigs", JSON.stringify(nodeConfigs));
+  fetch(`${OLLMO_API}/config/nodes`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodeConfigs }),
+  }).catch(() => {});
 }
 
 function readSubSettings() {
@@ -501,7 +516,7 @@ canvas.onNodeSelected = node => {
 };
 
 // --- Mode-level config (total system allocation) ---
-const modeConfigs = JSON.parse(localStorage.getItem("oaio-modeConfigs") || "{}");
+let modeConfigs = {};
 let selectedModeId = null;
 
 function loadModeConfig(modeId) {
@@ -539,7 +554,10 @@ function saveModeConfig() {
     limit:      document.getElementById("mode-limit").value,
     limitAct:   document.getElementById("sub-mode-limit-action")?.value,
   };
-  localStorage.setItem("oaio-modeConfigs", JSON.stringify(modeConfigs));
+  fetch(`${OLLMO_API}/config/nodes`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ modeConfigs }),
+  }).catch(() => {});
 }
 
 function updateModeLimitSub(saved) {
@@ -612,19 +630,73 @@ async function loadPathsPanel() {
 function renderPathsList(paths) {
   const list = document.getElementById("paths-list");
   list.innerHTML = "";
+
   paths.forEach(p => {
     const entry = document.createElement("div");
     entry.className = "path-entry";
     entry.dataset.name = p.name;
+
+    const statusDot  = `<span class="path-status ${p.exists ? 'ok' : 'missing'}" title="${p.exists ? 'target exists' : 'target missing'}"></span>`;
+    const tierBadge  = `<span class="tier-badge ${p.tier}">${p.tier}</span>`;
+    const ctrs       = (p.containers || []).map(c => `<span class="ctr-badge">${c}</span>`).join("");
+    const targetText = p.target || '—';
+
     entry.innerHTML =
-      `<span class="path-entry-label">${p.label}</span>` +
-      `<span class="path-entry-target" title="${p.target || 'missing'}">${p.target || '—'}</span>` +
-      `<span class="tier-badge ${p.tier}">${p.tier}</span>` +
-      `<button class="path-edit-btn" data-name="${p.name}">EDIT</button>`;
+      `<div class="path-row-main">` +
+        statusDot +
+        `<span class="path-entry-label">${p.label}</span>` +
+        tierBadge +
+        `<span class="path-entry-target" title="${targetText}">${targetText}</span>` +
+        `<button class="path-edit-btn" data-name="${p.name}">EDIT</button>` +
+        `<button class="path-del-btn" data-name="${p.name}" title="Remove">✕</button>` +
+      `</div>` +
+      (ctrs ? `<div class="path-ctrs">${ctrs}</div>` : "");
+
     entry.querySelector(".path-edit-btn").addEventListener("click", () =>
       startPathEdit(entry, p.name, p.target || p.default_target)
     );
+    entry.querySelector(".path-del-btn").addEventListener("click", async () => {
+      if (!confirm(`Remove path "${p.label}"?`)) return;
+      await fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(p.name)}`, { method: "DELETE" });
+      loadPathsPanel();
+    });
     list.appendChild(entry);
+  });
+
+  // Add path button
+  const addBtn = document.createElement("button");
+  addBtn.className = "path-add-btn mode-btn";
+  addBtn.textContent = "+ Add Path";
+  addBtn.addEventListener("click", () => showAddPathForm(list, addBtn));
+  list.appendChild(addBtn);
+}
+
+function showAddPathForm(list, addBtn) {
+  addBtn.remove();
+  const form = document.createElement("div");
+  form.className = "path-add-form";
+  form.innerHTML =
+    `<input class="path-add-input" id="add-name"   placeholder="name (e.g. my-models)" />` +
+    `<input class="path-add-input" id="add-label"  placeholder="label (e.g. My Models)" />` +
+    `<input class="path-add-input" id="add-target" placeholder="/path/to/directory" />` +
+    `<div style="display:flex;gap:6px;margin-top:4px">` +
+      `<button class="mode-btn" id="add-confirm">ADD</button>` +
+      `<button class="mode-btn" id="add-cancel">CANCEL</button>` +
+    `</div>`;
+  list.appendChild(form);
+
+  document.getElementById("add-cancel").addEventListener("click", loadPathsPanel);
+  document.getElementById("add-confirm").addEventListener("click", async () => {
+    const name   = document.getElementById("add-name").value.trim();
+    const label  = document.getElementById("add-label").value.trim();
+    const target = document.getElementById("add-target").value.trim();
+    if (!name || !target) return;
+    await fetch(`${OLLMO_API}/config/paths`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, label: label || name, target }),
+    });
+    loadPathsPanel();
   });
 }
 
