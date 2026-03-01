@@ -1,0 +1,6 @@
+{
+  "tts_url":       "http://rvc:8001/v1",
+  "ollama_url":    "http://ollama:11434",
+  "image_gen_url": "http://comfyui:8188",
+  "stt_url":       ""
+}

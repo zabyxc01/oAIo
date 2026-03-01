@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+aiofiles
+httpx
+soundfile
+pydub
+docker
+psutil
+python-multipart

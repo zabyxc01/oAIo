@@ -1,0 +1,95 @@
+{
+  "modes": {
+    "converse": {
+      "id": 1,
+      "name": "CONVERSE",
+      "description": "Talk to the AI — LLM + voice in and out",
+      "services": ["ollama", "open-webui", "kokoro-tts", "rvc"],
+      "vram_budget_gb": 11,
+      "allocations": {
+        "ollama":     7.5,
+        "rvc":        3.0,
+        "kokoro-tts": 0,
+        "open-webui": 0
+      },
+      "boot_image": null
+    },
+    "create": {
+      "id": 2,
+      "name": "CREATE",
+      "description": "LLM + image generation + voice",
+      "services": ["ollama", "open-webui", "kokoro-tts", "rvc", "comfyui"],
+      "vram_budget_gb": 20,
+      "allocations": {
+        "ollama":     7.5,
+        "rvc":        3.0,
+        "kokoro-tts": 0,
+        "open-webui": 0,
+        "comfyui":    8.0
+      },
+      "boot_image": null
+    },
+    "forge": {
+      "id": 3,
+      "name": "FORGE",
+      "description": "Voice training and cloning pipeline",
+      "services": ["f5-tts", "rvc"],
+      "vram_budget_gb": 5,
+      "allocations": {
+        "f5-tts": 2.0,
+        "rvc":    3.0
+      },
+      "boot_image": null
+    },
+    "render_full": {
+      "id": 4,
+      "name": "RENDER: FULL",
+      "description": "ComfyUI + talking head video",
+      "services": ["comfyui"],
+      "vram_budget_gb": 16,
+      "allocations": {
+        "comfyui": 16.0
+      },
+      "boot_image": null
+    },
+    "render_video": {
+      "id": 5,
+      "name": "RENDER: VIDEO",
+      "description": "Full GPU dedicated to video generation",
+      "services": ["comfyui"],
+      "vram_budget_gb": 18,
+      "allocations": {
+        "comfyui": 18.0
+      },
+      "boot_image": null
+    },
+    "render_image": {
+      "id": 6,
+      "name": "RENDER: IMAGE",
+      "description": "Full GPU dedicated to Flux image generation",
+      "services": ["comfyui"],
+      "vram_budget_gb": 12,
+      "allocations": {
+        "comfyui": 12.0
+      },
+      "boot_image": null
+    },
+    "render_3d": {
+      "id": 7,
+      "name": "RENDER: 3D ANIMATION",
+      "description": "Image to 3D + animation pipeline — voice TBD",
+      "services": ["comfyui"],
+      "vram_budget_gb": 14,
+      "allocations": {
+        "comfyui": 14.0
+      },
+      "boot_image": null
+    }
+  },
+  "scratch_pad": {
+    "model": "TBD",
+    "vram_est_gb": 2,
+    "always_resident": true,
+    "description": "Tiny LLM — always on across all modes"
+  }
+}

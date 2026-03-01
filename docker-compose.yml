@@ -1,0 +1,166 @@
+# oAIo — SYS-PANDORA-OAO service stack
+# Run: docker compose up -d
+# Stop: docker compose down
+# Logs: docker compose logs -f [service]
+
+networks:
+  oaio-net:
+    driver: bridge
+
+volumes:
+  ollama:
+  open-webui:
+
+services:
+
+  # ── Ollama LLM ──────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: ollama
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "11434:11434"
+    volumes:
+      - /mnt/windows-sata/ollama:/root/.ollama
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+
+  # ── Open-WebUI ───────────────────────────────────────────────────────────────
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      # TTS routes through RVC proxy (Kokoro → RVC → voice output)
+      - AUDIO_TTS_ENGINE=openai
+      - AUDIO_TTS_OPENAI_API_BASE_URL=http://rvc:8001/v1
+      - AUDIO_TTS_OPENAI_API_KEY=sk-oaio
+      - SCARF_NO_ANALYTICS=true
+      - DO_NOT_TRACK=true
+    depends_on:
+      - ollama
+      - rvc
+
+  # ── Kokoro TTS ───────────────────────────────────────────────────────────────
+  kokoro-tts:
+    image: kokoro-tts
+    container_name: kokoro-tts
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "8000:8000"
+    volumes:
+      - /mnt/storage/ai/audio/kokoro-voices:/models
+
+  # ── RVC (voice conversion proxy) ─────────────────────────────────────────────
+  rvc:
+    image: rvc
+    container_name: rvc
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "7865:7865"
+      - "8001:8001"
+    volumes:
+      - /mnt/storage/ai/audio:/models
+      - /home/oao/Videos/audio/_EDITED:/rvc/audio
+    environment:
+      - KOKORO_URL=http://kokoro-tts:8000
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    depends_on:
+      - kokoro-tts
+
+  # ── F5-TTS (voice cloning) ────────────────────────────────────────────────────
+  f5-tts:
+    image: f5-tts
+    container_name: f5-tts
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "7860:7860"
+    volumes:
+      - /mnt/storage/ai/audio/huggingface:/hf-cache
+      - /home/oao/reference-audio:/ref-audio
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+
+  # ── ComfyUI ──────────────────────────────────────────────────────────────────
+  comfyui:
+    build:
+      context: .
+      dockerfile: docker/comfyui/Dockerfile
+    container_name: comfyui
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "8188:8188"
+    volumes:
+      - /mnt/storage/ai/comfyui/models:/ComfyUI/models
+      - /home/oao/ComfyUI/custom_nodes:/ComfyUI/custom_nodes
+      - /home/oao/ComfyUI/user:/ComfyUI/user
+      - /home/oao/ComfyUI/output:/ComfyUI/output
+      - /home/oao/ComfyUI/input:/ComfyUI/input
+      - /mnt/storage/ai/audio/huggingface:/hf-cache
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+      - PYTORCH_ROCM_ARCH=gfx1100
+      - HF_HOME=/hf-cache
+
+  # ── oAIo (control plane + UI) ────────────────────────────────────────────────
+  oaio:
+    build:
+      context: .
+      dockerfile: docker/oaio/Dockerfile
+    container_name: oaio
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "9000:9000"    # oLLMo API + frontend UI
+      - "8002:8002"    # oAudio API
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/rocm-smi:/usr/bin/rocm-smi:ro
+      - /opt/rocm/lib:/opt/rocm/lib:ro
+      - /home/oao/Videos/audio/_EDITED:/rvc/audio
+      - /home/oao/ComfyUI/user:/comfyui-user:ro
+      - ./templates:/app/templates
+      - /mnt/oaio:/mnt/oaio
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - LD_LIBRARY_PATH=/opt/rocm/lib
+      - KOKORO_URL=http://kokoro-tts:8000
+      - RVC_PROXY=http://rvc:8001
+      - OUTPUT_BASE=/rvc/audio
+      - OLLAMA_URL=http://ollama:11434
+      - COMFYUI_USER_PATH=/comfyui-user
+      - OAIO_SYMLINK_ROOT=/mnt/oaio
+    depends_on:
+      - ollama
+      - kokoro-tts
+      - rvc
