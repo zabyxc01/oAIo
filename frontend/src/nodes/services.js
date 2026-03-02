@@ -63,31 +63,43 @@ class ServiceNode {
   }
 }
 
-// Register each service as a Litegraph node type
-const SERVICE_DEFS = [
-  { name: "ollama",      label: "Ollama LLM",    group: "oLLM",    port: 11434, vram: 7.5 },
-  { name: "open-webui",  label: "Open-WebUI",    group: "oLLM",    port: 3000,  vram: 0   },
-  { name: "kokoro-tts",  label: "Kokoro TTS",    group: "oAudio",  port: 8000,  vram: 0   },
-  { name: "rvc",         label: "RVC",           group: "oAudio",  port: 8001,  vram: 3.0 },
-  { name: "f5-tts",      label: "F5-TTS",        group: "oAudio",  port: 7860,  vram: 2.0 },
-  { name: "comfyui",     label: "ComfyUI",       group: "Render",  port: 8188,  vram: 12  },
-];
-
-SERVICE_DEFS.forEach(def => {
-  function NodeClass() {
-    this.addOutput("audio", "audio");
-    this.addOutput("status", "string");
-    this.title      = def.label;
-    this.color      = "#1e1e1e";
-    this.bgcolor    = "#141414";
-    this._svc       = new ServiceNode(def.name, def.group, def.port, def.vram);
-    this._svc.refreshStatus();
+// Register service nodes from API — data-driven
+async function registerServiceNodes() {
+  let defs = [];
+  try {
+    const r = await fetch(`${OLLMO_API}/config/services`);
+    const data = await r.json();
+    defs = Object.entries(data).map(([name, svc]) => ({
+      name,
+      label: svc.description
+        ? `${name.charAt(0).toUpperCase() + name.slice(1)} — ${svc.description}`
+        : name,
+      group: svc.group || "Other",
+      port:  svc.port  || 0,
+      vram:  svc.vram_est_gb || 0,
+    }));
+  } catch (e) {
+    console.warn("[oAIo] Could not load service defs:", e);
   }
-  NodeClass.prototype = Object.create(LGraphNode.prototype);
-  NodeClass.prototype.onDrawBackground = function(ctx) { this._svc.onDrawBackground.call(this, ctx); };
-  NodeClass.prototype.onDrawForeground = function(ctx) { this._svc.onDrawForeground.call(this, ctx); };
-  NodeClass.prototype.onMouseDown      = function(e, p) { return this._svc.onMouseDown.call(this, e, p); };
-  NodeClass.title = def.label;
 
-  LiteGraph.registerNodeType(`oAIo/${def.name}`, NodeClass);
-});
+  defs.forEach(def => {
+    function NodeClass() {
+      this.addOutput("audio", "audio");
+      this.addOutput("status", "string");
+      this.title   = def.label;
+      this.color   = "#1e1e1e";
+      this.bgcolor = "#141414";
+      this._svc    = new ServiceNode(def.name, def.group, def.port, def.vram);
+      this._svc.refreshStatus();
+    }
+    NodeClass.prototype = Object.create(LGraphNode.prototype);
+    NodeClass.prototype.onDrawBackground = function(ctx) { this._svc.onDrawBackground.call(this, ctx); };
+    NodeClass.prototype.onDrawForeground = function(ctx) { this._svc.onDrawForeground.call(this, ctx); };
+    NodeClass.prototype.onMouseDown      = function(e, p) { return this._svc.onMouseDown.call(this, e, p); };
+    NodeClass.title = def.label;
+
+    LiteGraph.registerNodeType(`oAIo/${def.name}`, NodeClass);
+  });
+}
+
+registerServiceNodes();

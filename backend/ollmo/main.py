@@ -10,7 +10,7 @@ import httpx
 import docker as docker_sdk
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -59,7 +59,8 @@ TEMPLATES_DIR  = Path(__file__).parent.parent.parent / "templates"
 PATHS_CFG_FILE   = CONFIG_DIR / "paths.json"
 ROUTING_CFG_FILE = CONFIG_DIR / "routing.json"
 MODES_CFG_FILE   = CONFIG_DIR / "modes.json"
-NODES_CFG_FILE   = CONFIG_DIR / "nodes.json"
+NODES_CFG_FILE    = CONFIG_DIR / "nodes.json"
+SERVICES_CFG_FILE = CONFIG_DIR / "services.json"
 
 def _modes() -> dict:
     """Always read fresh — modes.json is mutable at runtime."""
@@ -405,6 +406,55 @@ def config_nodes_set(body: dict):
 @app.get("/config/storage/stats")
 def config_storage_stats():
     return get_storage_stats()
+
+
+@app.websocket("/ws")
+async def ws_status(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            vram = get_vram_usage()
+            gpu  = get_gpu_utilization()
+            ram  = psutil.virtual_memory()
+            payload = {
+                "vram":     vram,
+                "gpu":      gpu,
+                "ram":      {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
+                "services": all_status(SERVICES),
+                "alerts":   check_alerts(),
+            }
+            await websocket.send_json(payload)
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        pass
+
+
+@app.get("/config/services")
+def config_services_get():
+    return json.loads(SERVICES_CFG_FILE.read_text())["services"]
+
+
+@app.post("/config/services")
+def config_services_add(body: dict):
+    name = body.get("name", "").strip().lower().replace(" ", "-")
+    if not name:
+        return {"error": "name is required"}
+    cfg = json.loads(SERVICES_CFG_FILE.read_text())
+    if name in cfg["services"]:
+        return {"error": f"Service '{name}' already registered"}
+    cfg["services"][name] = {
+        "container":    body.get("container", name),
+        "port":         body.get("port", 0),
+        "vram_est_gb":  body.get("vram_est_gb", 0),
+        "ram_est_gb":   body.get("ram_est_gb", 0),
+        "priority":     body.get("priority", 3),
+        "limit_mode":   body.get("limit_mode", "soft"),
+        "group":        body.get("group", "Other"),
+        "description":  body.get("description", ""),
+        "capabilities": body.get("capabilities", []),
+    }
+    SERVICES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    return cfg["services"][name]
 
 
 @app.get("/enforcement/status")

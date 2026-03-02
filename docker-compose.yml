@@ -126,8 +126,8 @@ services:
     group_add:
       - video
     environment:
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0
-      - PYTORCH_ROCM_ARCH=gfx1100
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
+      - PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH:-gfx1100}
       - HF_HOME=/hf-cache
 
   # ── oAIo (control plane + UI) ────────────────────────────────────────────────
@@ -161,7 +161,7 @@ services:
       - OUTPUT_BASE=/rvc/audio
       - OLLAMA_URL=http://ollama:11434
       - COMFYUI_USER_PATH=/comfyui-user
-      - OAIO_SYMLINK_ROOT=/mnt/oaio
+      - OAIO_SYMLINK_ROOT=${OAIO_SYMLINK_ROOT:-/mnt/oaio}
     depends_on:
       - ollama
       - kokoro-tts

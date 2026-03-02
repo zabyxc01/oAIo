@@ -773,28 +773,46 @@ function syncAlerts(alerts) {
   showAlert(top.level, top.message);
 }
 
-// --- Poll system status ---
+// --- Status rendering ---
+function applyStatusUpdate(d) {
+  setGauge("vram-bar", "vram-label", d.vram?.used_gb || 0, d.vram?.total_gb || 20);
+  setGauge("ram-bar",  "ram-label",  d.ram?.used_gb  || 0, d.ram?.total_gb  || 62);
+
+  const gpuPct = (d.gpu?.gpu_use_percent || 0) / 100;
+  const gpuBar = document.getElementById("gpu-bar");
+  gpuBar.style.width = (gpuPct * 100) + "%";
+  gpuBar.className = "fill" + (gpuPct > 0.85 ? " hot" : gpuPct > 0.6 ? " warn" : "");
+  document.getElementById("gpu-label").textContent = `${d.gpu?.gpu_use_percent || 0}%`;
+
+  if (window._lastStorageStats) d.storage = window._lastStorageStats;
+  syncAlerts(d.alerts);
+  Timeline.drawTimeline(timelineCanvas, d, activeViews);
+}
+
+// --- WebSocket status stream ---
+function connectStatusWS() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = (event) => {
+    try { applyStatusUpdate(JSON.parse(event.data)); } catch (e) {}
+  };
+  ws.onclose = () => { setTimeout(connectStatusWS, 3000); };
+  ws.onerror = () => { ws.close(); };
+}
+
+async function pollStorage() {
+  try {
+    const r = await fetch(`${OLLMO_API}/config/storage/stats`);
+    if (r.ok) { window._lastStorageStats = await r.json(); }
+  } catch {}
+}
+
+// --- Poll system status (manual refresh) ---
 async function poll() {
   try {
-    const [statusR, storageR] = await Promise.all([
-      fetch(`${OLLMO_API}/system/status`),
-      fetch(`${OLLMO_API}/config/storage/stats`).catch(() => null),
-    ]);
-    const d = await statusR.json();
-    const storage = storageR ? await storageR.json() : null;
-
-    setGauge("vram-bar", "vram-label", d.vram?.used_gb || 0, d.vram?.total_gb || 20);
-    setGauge("ram-bar",  "ram-label",  d.ram?.used_gb  || 0, d.ram?.total_gb  || 62);
-
-    const gpuPct = (d.gpu?.gpu_use_percent || 0) / 100;
-    const gpuBar = document.getElementById("gpu-bar");
-    gpuBar.style.width = (gpuPct * 100) + "%";
-    gpuBar.className = "fill" + (gpuPct > 0.85 ? " hot" : gpuPct > 0.6 ? " warn" : "");
-    document.getElementById("gpu-label").textContent = `${d.gpu?.gpu_use_percent || 0}%`;
-
-    if (storage) d.storage = storage;
-    syncAlerts(d.alerts);
-    Timeline.drawTimeline(timelineCanvas, d, activeViews);
+    const r = await fetch(`${OLLMO_API}/system/status`);
+    const d = await r.json();
+    applyStatusUpdate(d);
   } catch (e) {
     console.warn("oLLMo API not reachable:", e.message);
   }
@@ -832,5 +850,6 @@ async function loadTemplates() {
 // --- Init ---
 fetchModesData();
 loadTemplates();
-setInterval(poll, POLL_MS);
-poll();
+connectStatusWS();
+setInterval(pollStorage, 30000);
+pollStorage();

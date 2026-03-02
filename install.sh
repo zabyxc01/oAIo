@@ -1,0 +1,547 @@
+#!/usr/bin/env bash
+# oAIo — install.sh
+# Interactive installer for the oAIo AI infrastructure stack.
+# Safe to re-run (idempotent). Supports AMD ROCm and NVIDIA CUDA.
+# Usage: bash install.sh
+
+set -euo pipefail
+
+# ─── Colour helpers ──────────────────────────────────────────────────────────
+
+if [[ -t 1 ]]; then
+  C_RESET="\033[0m"
+  C_BOLD="\033[1m"
+  C_RED="\033[1;31m"
+  C_GREEN="\033[1;32m"
+  C_YELLOW="\033[1;33m"
+  C_BLUE="\033[1;34m"
+  C_CYAN="\033[1;36m"
+  C_DIM="\033[2m"
+else
+  C_RESET="" C_BOLD="" C_RED="" C_GREEN="" C_YELLOW="" C_BLUE="" C_CYAN="" C_DIM=""
+fi
+
+info()    { printf "  ${C_BLUE}•${C_RESET} %s\n"          "$*"; }
+ok()      { printf "  ${C_GREEN}✔${C_RESET} %s\n"         "$*"; }
+warn()    { printf "  ${C_YELLOW}⚠${C_RESET}  %s\n"       "$*"; }
+err()     { printf "  ${C_RED}✖${C_RESET} %s\n"           "$*" >&2; }
+step()    { printf "\n${C_BOLD}${C_CYAN}══ %s${C_RESET}\n" "$*"; }
+banner()  { printf "\n${C_BOLD}${C_BLUE}%s${C_RESET}\n"   "$*"; }
+dim()     { printf "${C_DIM}%s${C_RESET}\n"               "$*"; }
+die()     { err "$*"; exit 1; }
+
+# ─── Absolute project root ────────────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
+ENV_FILE="$PROJECT_ROOT/.env"
+
+# ─── sudo helper — only escalate when needed ─────────────────────────────────
+
+SUDO=""
+_sudo_check_done=0
+need_sudo() {
+  if [[ $_sudo_check_done -eq 1 ]]; then return; fi
+  _sudo_check_done=1
+  if [[ $EUID -ne 0 ]]; then
+    if command -v sudo &>/dev/null; then
+      warn "Some operations require elevated privileges."
+      info "You may be prompted for your sudo password."
+      SUDO="sudo"
+    else
+      die "Root privileges needed but sudo is not available. Re-run as root."
+    fi
+  fi
+}
+
+run_root() {
+  need_sudo
+  $SUDO "$@"
+}
+
+# ─── Prereq check ────────────────────────────────────────────────────────────
+
+check_prereqs() {
+  step "Checking prerequisites"
+  local missing=()
+
+  command -v docker &>/dev/null || missing+=("docker")
+  command -v git    &>/dev/null || missing+=("git")
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    err "Missing required tools: ${missing[*]}"
+    info "Install with: sudo apt-get install -y ${missing[*]}"
+    exit 1
+  fi
+
+  if ! docker info &>/dev/null 2>&1; then
+    warn "Docker daemon is not reachable as the current user."
+    warn "Adding $USER to the docker group..."
+    need_sudo
+    run_root usermod -aG docker "$USER"
+    warn "Log out and back in (or: newgrp docker) then re-run this script."
+    exit 1
+  fi
+
+  if ! docker compose version &>/dev/null 2>&1; then
+    die "docker compose (v2 plugin) not found. Install the Docker Compose plugin."
+  fi
+
+  ok "docker $(docker --version | awk '{print $3}' | tr -d ',')"
+  ok "docker compose $(docker compose version --short 2>/dev/null || echo 'v2')"
+}
+
+# ─── Step 1 — Deployment type ────────────────────────────────────────────────
+
+DEPLOY_TYPE=""
+
+select_deployment_type() {
+  step "Step 1 — Deployment type"
+  printf "\n"
+  printf "  ${C_BOLD}1)${C_RESET} Local Workstation   — daily driver, full control\n"
+  printf "  ${C_BOLD}2)${C_RESET} Training Node       — rented GPU, job-focused\n"
+  printf "  ${C_BOLD}3)${C_RESET} Fleet Node          — managed instance, remotely orchestrated\n"
+  printf "  ${C_BOLD}4)${C_RESET} Custom              — I know what I'm doing\n"
+  printf "\n"
+
+  while true; do
+    read -rp "  Select deployment type [1-4]: " choice
+    case "$choice" in
+      1) DEPLOY_TYPE="workstation"; break ;;
+      2) DEPLOY_TYPE="training";    break ;;
+      3) DEPLOY_TYPE="fleet";       break ;;
+      4) DEPLOY_TYPE="custom";      break ;;
+      *) warn "Enter 1, 2, 3, or 4." ;;
+    esac
+  done
+
+  ok "Deployment type: ${C_BOLD}${DEPLOY_TYPE}${C_RESET}"
+}
+
+# ─── Step 2 — Component selection ────────────────────────────────────────────
+
+COMP_CONTROL=1
+COMP_LLM=0
+COMP_VOICE=0
+COMP_RENDER=0
+COMP_TRAINING=0
+COMP_FLEET=0
+
+select_components() {
+  step "Step 2 — Component selection"
+
+  local avail_llm avail_voice avail_render avail_training avail_fleet
+  case "$DEPLOY_TYPE" in
+    workstation)
+      COMP_LLM=0; COMP_VOICE=0; COMP_RENDER=0; COMP_TRAINING=0; COMP_FLEET=0
+      avail_llm=1; avail_voice=1; avail_render=1; avail_training=1; avail_fleet=0
+      ;;
+    training)
+      COMP_LLM=0; COMP_VOICE=0; COMP_RENDER=0; COMP_TRAINING=1; COMP_FLEET=0
+      avail_llm=0; avail_voice=0; avail_render=0; avail_training=1; avail_fleet=0
+      ;;
+    fleet)
+      COMP_LLM=0; COMP_VOICE=0; COMP_RENDER=0; COMP_TRAINING=0; COMP_FLEET=1
+      avail_llm=1; avail_voice=1; avail_render=1; avail_training=1; avail_fleet=1
+      ;;
+    custom)
+      COMP_LLM=0; COMP_VOICE=0; COMP_RENDER=0; COMP_TRAINING=0; COMP_FLEET=0
+      avail_llm=1; avail_voice=1; avail_render=1; avail_training=1; avail_fleet=1
+      ;;
+  esac
+
+  _render_menu() {
+    printf "\n"
+    printf "  Toggle by number. Press ${C_BOLD}Enter${C_RESET} to confirm.\n\n"
+    printf "  ${C_DIM}[x] = selected   [ ] = not selected   [—] = unavailable${C_RESET}\n\n"
+    printf "  ${C_GREEN}[x]${C_RESET} ${C_BOLD}1) Control Plane${C_RESET}     — oAIo API + UI ${C_DIM}(always required)${C_RESET}\n"
+
+    local llm_mark voice_mark render_mark training_mark fleet_mark
+    [[ $COMP_LLM      -eq 1 ]] && llm_mark="${C_GREEN}[x]${C_RESET}"      || llm_mark="[ ]"
+    [[ $COMP_VOICE    -eq 1 ]] && voice_mark="${C_GREEN}[x]${C_RESET}"    || voice_mark="[ ]"
+    [[ $COMP_RENDER   -eq 1 ]] && render_mark="${C_GREEN}[x]${C_RESET}"   || render_mark="[ ]"
+    [[ $COMP_TRAINING -eq 1 ]] && training_mark="${C_GREEN}[x]${C_RESET}" || training_mark="[ ]"
+    [[ $COMP_FLEET    -eq 1 ]] && fleet_mark="${C_GREEN}[x]${C_RESET}"    || fleet_mark="[ ]"
+
+    if [[ $avail_llm -eq 1 ]]; then
+      printf "  %b ${C_BOLD}2) LLM Stack${C_RESET}         — Ollama + Open-WebUI\n" "$llm_mark"
+    else
+      printf "  ${C_DIM}[—] 2) LLM Stack         — not available for this deployment${C_RESET}\n"
+    fi
+    if [[ $avail_voice -eq 1 ]]; then
+      printf "  %b ${C_BOLD}3) Voice Stack${C_RESET}       — Kokoro + RVC + F5-TTS\n" "$voice_mark"
+    else
+      printf "  ${C_DIM}[—] 3) Voice Stack       — not available for this deployment${C_RESET}\n"
+    fi
+    if [[ $avail_render -eq 1 ]]; then
+      printf "  %b ${C_BOLD}4) Render Stack${C_RESET}      — ComfyUI\n" "$render_mark"
+    else
+      printf "  ${C_DIM}[—] 4) Render Stack      — not available for this deployment${C_RESET}\n"
+    fi
+    if [[ $avail_training -eq 1 ]]; then
+      printf "  %b ${C_BOLD}5) Training Stack${C_RESET}    — ${C_DIM}(placeholder — future)${C_RESET}\n" "$training_mark"
+    else
+      printf "  ${C_DIM}[—] 5) Training Stack    — not available for this deployment${C_RESET}\n"
+    fi
+    if [[ $avail_fleet -eq 1 ]]; then
+      printf "  %b ${C_BOLD}6) Fleet Services${C_RESET}    — ${C_DIM}(placeholder — future)${C_RESET}\n" "$fleet_mark"
+    else
+      printf "  ${C_DIM}[—] 6) Fleet Services    — not available for this deployment${C_RESET}\n"
+    fi
+    printf "\n"
+  }
+
+  while true; do
+    _render_menu
+    read -rp "  Toggle [2-6] or press Enter to confirm: " choice
+    case "$choice" in
+      "")   break ;;
+      1)    warn "Control Plane is always required." ;;
+      2)    [[ $avail_llm      -eq 1 ]] && COMP_LLM=$(( 1 - COMP_LLM ))           || warn "Not available." ;;
+      3)    [[ $avail_voice    -eq 1 ]] && COMP_VOICE=$(( 1 - COMP_VOICE ))        || warn "Not available." ;;
+      4)    [[ $avail_render   -eq 1 ]] && COMP_RENDER=$(( 1 - COMP_RENDER ))      || warn "Not available." ;;
+      5)    [[ $avail_training -eq 1 ]] && COMP_TRAINING=$(( 1 - COMP_TRAINING ))  || warn "Not available." ;;
+      6)    [[ $avail_fleet    -eq 1 ]] && COMP_FLEET=$(( 1 - COMP_FLEET ))        || warn "Not available." ;;
+      *)    warn "Enter 2–6 or press Enter." ;;
+    esac
+  done
+
+  ok "Control Plane selected (required)"
+  [[ $COMP_LLM      -eq 1 ]] && ok "LLM Stack selected"
+  [[ $COMP_VOICE    -eq 1 ]] && ok "Voice Stack selected"
+  [[ $COMP_RENDER   -eq 1 ]] && ok "Render Stack selected"
+  [[ $COMP_TRAINING -eq 1 ]] && ok "Training Stack selected"
+  [[ $COMP_FLEET    -eq 1 ]] && ok "Fleet Services selected"
+  true
+}
+
+# ─── Step 3 — GPU detection + .env ───────────────────────────────────────────
+
+GPU_VENDOR=""
+AMD_GFX=""
+AMD_HSA_VERSION=""
+DOCKER_GPU_FLAGS=""
+
+detect_gpu() {
+  step "Step 3 — GPU detection"
+
+  if [[ -e /dev/kfd ]]; then
+    GPU_VENDOR="amd"
+    ok "AMD GPU detected (/dev/kfd present)"
+
+    local gfx_raw=""
+
+    if command -v rocminfo &>/dev/null; then
+      gfx_raw=$(rocminfo 2>/dev/null \
+        | grep -i "Name:" | grep -oi "gfx[0-9a-f]*" | head -1 || true)
+    fi
+
+    if [[ -z "$gfx_raw" ]]; then
+      for uevent in /sys/class/drm/card*/device/uevent; do
+        [[ -f "$uevent" ]] || continue
+        local candidate
+        candidate=$(grep -oi "gfx[0-9a-f]*" "$uevent" 2>/dev/null | head -1 || true)
+        [[ -n "$candidate" ]] && { gfx_raw="$candidate"; break; }
+      done
+    fi
+
+    if [[ -z "$gfx_raw" ]]; then
+      for namefile in /sys/class/drm/card*/device/ip_discovery/die/*/gfx/*/name; do
+        [[ -f "$namefile" ]] || continue
+        local raw
+        raw=$(cat "$namefile" 2>/dev/null || true)
+        if [[ "$raw" =~ (gfx[0-9a-f]+) ]]; then
+          gfx_raw="${BASH_REMATCH[1]}"; break
+        fi
+      done
+    fi
+
+    if [[ -n "$gfx_raw" ]]; then
+      AMD_GFX=$(printf '%s' "$gfx_raw" | tr '[:upper:]' '[:lower:]')
+      local digits="${AMD_GFX#gfx}" len=${#digits}
+      if [[ $len -eq 4 ]]; then
+        AMD_HSA_VERSION="${digits:0:2}.${digits:2:1}.${digits:3:1}"
+      elif [[ $len -eq 3 ]]; then
+        AMD_HSA_VERSION="${digits:0:1}.${digits:1:1}.${digits:2:1}"
+      else
+        AMD_HSA_VERSION="${digits}.0.0"
+      fi
+      ok "GFX target: ${C_BOLD}${AMD_GFX}${C_RESET}  (HSA: ${AMD_HSA_VERSION})"
+    else
+      warn "Could not auto-detect AMD GFX version. Defaulting to gfx1100 / 11.0.0"
+      warn "Edit .env after install if wrong."
+      AMD_GFX="gfx1100"; AMD_HSA_VERSION="11.0.0"
+    fi
+
+    DOCKER_GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video"
+
+  elif command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null 2>&1; then
+    GPU_VENDOR="nvidia"
+    local nvgpu
+    nvgpu=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown")
+    ok "NVIDIA GPU: ${C_BOLD}${nvgpu}${C_RESET}"
+    AMD_GFX="n/a"; AMD_HSA_VERSION="n/a"
+    if ! command -v nvidia-container-runtime &>/dev/null; then
+      warn "nvidia-container-runtime not found — install NVIDIA Container Toolkit."
+    fi
+    DOCKER_GPU_FLAGS="--gpus all"
+
+  else
+    GPU_VENDOR="none"
+    warn "No GPU detected — containers may fail at runtime."
+    AMD_GFX="gfx1100"; AMD_HSA_VERSION="11.0.0"; DOCKER_GPU_FLAGS=""
+  fi
+}
+
+write_env() {
+  step "Writing .env"
+
+  local existing_ollama_dir=""
+  if [[ -f "$ENV_FILE" ]]; then
+    existing_ollama_dir=$(grep "^OLLAMA_MODELS_DIR=" "$ENV_FILE" 2>/dev/null \
+      | cut -d= -f2- || true)
+    info "Existing .env found — updating."
+  fi
+
+  cat > "$ENV_FILE" <<ENVEOF
+# oAIo — generated by install.sh on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Edit manually or re-run install.sh to regenerate.
+
+# ── Deployment ────────────────────────────────────────────────────────────────
+OAIO_DEPLOY_TYPE=${DEPLOY_TYPE}
+
+# ── GPU ───────────────────────────────────────────────────────────────────────
+GPU_VENDOR=${GPU_VENDOR}
+PYTORCH_ROCM_ARCH=${AMD_GFX}
+HSA_OVERRIDE_GFX_VERSION=${AMD_HSA_VERSION}
+DOCKER_GPU_FLAGS=${DOCKER_GPU_FLAGS}
+
+# ── Component selection ───────────────────────────────────────────────────────
+OAIO_COMP_LLM=${COMP_LLM}
+OAIO_COMP_VOICE=${COMP_VOICE}
+OAIO_COMP_RENDER=${COMP_RENDER}
+OAIO_COMP_TRAINING=${COMP_TRAINING}
+OAIO_COMP_FLEET=${COMP_FLEET}
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+OLLAMA_MODELS_DIR=${existing_ollama_dir:-/mnt/windows-sata/ollama-models}
+STORAGE_ROOT=/mnt/storage
+OAIO_SYMLINK_ROOT=/mnt/oaio
+
+# ── Service ports ─────────────────────────────────────────────────────────────
+OAIO_PORT=9000
+OAIO_AUDIO_PORT=8002
+OLLAMA_PORT=11434
+OPEN_WEBUI_PORT=3000
+KOKORO_PORT=8000
+RVC_PORT=8001
+F5_PORT=7860
+COMFYUI_PORT=8188
+
+# ── HuggingFace ───────────────────────────────────────────────────────────────
+HF_HOME=/mnt/oaio/hf-cache
+ENVEOF
+
+  ok ".env written to $ENV_FILE"
+}
+
+# ─── Step 4 — Path configuration + symlinks ──────────────────────────────────
+
+OLLAMA_MODELS_PATH="/mnt/windows-sata/ollama-models"
+COMFYUI_MODELS_PATH="/mnt/storage/ai/comfyui/models"
+AUDIO_PATH="/mnt/storage/ai/audio"
+HF_CACHE_PATH="/mnt/storage/ai/audio/huggingface"
+TRAINING_PATH="/mnt/storage/ai/training"
+COMFYUI_BASE_PATH="$HOME/ComfyUI"
+REF_AUDIO_PATH="$HOME/reference-audio"
+RVC_REF_PATH="$HOME/Videos/audio/_EDITED"
+STORAGE_ROOT="/mnt/storage"
+
+ask_custom_paths() {
+  step "Step 4 — Path configuration"
+  printf "\n"
+  info "The symlink layer maps /mnt/oaio/* to your actual data directories."
+  info "Defaults shown in [brackets]. Press Enter to accept.\n"
+
+  _ask_path() {
+    local label="$1" default="$2" varname="$3"
+    printf "  ${C_BOLD}%-28s${C_RESET} [%s]: " "$label" "$default"
+    local input; read -r input
+    printf -v "$varname" '%s' "${input:-$default}"
+  }
+
+  _ask_path "Ollama models dir"   "$OLLAMA_MODELS_PATH" OLLAMA_MODELS_PATH
+  _ask_path "AI storage root"     "$STORAGE_ROOT"       STORAGE_ROOT
+
+  COMFYUI_MODELS_PATH="${STORAGE_ROOT}/ai/comfyui/models"
+  AUDIO_PATH="${STORAGE_ROOT}/ai/audio"
+  HF_CACHE_PATH="${STORAGE_ROOT}/ai/audio/huggingface"
+  TRAINING_PATH="${STORAGE_ROOT}/ai/training"
+
+  _ask_path "ComfyUI install dir" "$COMFYUI_BASE_PATH"  COMFYUI_BASE_PATH
+  _ask_path "Reference audio dir" "$REF_AUDIO_PATH"     REF_AUDIO_PATH
+  _ask_path "RVC reference audio" "$RVC_REF_PATH"       RVC_REF_PATH
+
+  printf "\n"
+  ok "Paths confirmed."
+}
+
+run_symlinks() {
+  step "Creating /mnt/oaio symlinks"
+  need_sudo
+
+  [[ -d /mnt/oaio ]] || run_root mkdir -p /mnt/oaio
+
+  local dirs=(
+    "$COMFYUI_MODELS_PATH" "${COMFYUI_MODELS_PATH}/loras"
+    "$AUDIO_PATH" "${AUDIO_PATH}/kokoro-voices"
+    "$HF_CACHE_PATH" "${AUDIO_PATH}/rvc-weights" "${AUDIO_PATH}/rvc-indices"
+    "$TRAINING_PATH" "${STORAGE_ROOT}/swap" "$REF_AUDIO_PATH"
+    "${COMFYUI_BASE_PATH}/custom_nodes" "${COMFYUI_BASE_PATH}/user"
+    "${COMFYUI_BASE_PATH}/output" "${COMFYUI_BASE_PATH}/input"
+  )
+  for d in "${dirs[@]}"; do
+    [[ -d "$d" ]] || { info "Creating: $d"; mkdir -p "$d" 2>/dev/null || run_root mkdir -p "$d"; }
+  done
+
+  _link() {
+    local name="$1" target="$2" link="/mnt/oaio/$1"
+    if [[ -L "$link" ]] && [[ "$(readlink "$link")" == "$target" ]]; then
+      ok "  $link ${C_DIM}(unchanged)${C_RESET}"
+    else
+      [[ -L "$link" ]] && info "  Updating: $link -> $target" || info "  Creating: $link -> $target"
+      run_root ln -sfn "$target" "$link"
+      ok "  $link -> $target"
+    fi
+  }
+
+  _link ollama        "$OLLAMA_MODELS_PATH"
+  _link models        "$COMFYUI_MODELS_PATH"
+  _link lora          "${COMFYUI_MODELS_PATH}/loras"
+  _link custom-nodes  "${COMFYUI_BASE_PATH}/custom_nodes"
+  _link comfyui-user  "${COMFYUI_BASE_PATH}/user"
+  _link outputs       "${COMFYUI_BASE_PATH}/output"
+  _link inputs        "${COMFYUI_BASE_PATH}/input"
+  _link audio         "$AUDIO_PATH"
+  _link kokoro-voices "${AUDIO_PATH}/kokoro-voices"
+  _link hf-cache      "$HF_CACHE_PATH"
+  _link ref-audio     "$REF_AUDIO_PATH"
+  _link rvc-ref       "$RVC_REF_PATH"
+  _link swap          "${STORAGE_ROOT}/swap"
+  _link training      "$TRAINING_PATH"
+  _link rvc-weights   "${AUDIO_PATH}/rvc-weights"
+  _link rvc-indices   "${AUDIO_PATH}/rvc-indices"
+
+  printf "\n"
+  ok "All 16 symlinks verified under /mnt/oaio"
+
+  [[ -f "$ENV_FILE" ]] && \
+    sed -i "s|^OLLAMA_MODELS_DIR=.*|OLLAMA_MODELS_DIR=${OLLAMA_MODELS_PATH}|" "$ENV_FILE"
+}
+
+# ─── Step 5 — Build + compose up ─────────────────────────────────────────────
+
+build_and_start() {
+  step "Step 5 — Starting oAIo stack"
+
+  local services=("oaio")
+  [[ $COMP_LLM    -eq 1 ]] && services+=("ollama" "open-webui")
+  [[ $COMP_VOICE  -eq 1 ]] && services+=("kokoro-tts" "rvc" "f5-tts")
+  [[ $COMP_RENDER -eq 1 ]] && services+=("comfyui")
+  [[ $COMP_TRAINING -eq 1 ]] && warn "Training Stack: placeholder — no containers yet."
+  [[ $COMP_FLEET    -eq 1 ]] && warn "Fleet Services: placeholder — no containers yet."
+
+  info "Services: ${services[*]}"
+
+  local build_services=()
+  for svc in "${services[@]}"; do
+    case "$svc" in oaio|comfyui|rvc) build_services+=("$svc") ;; esac
+  done
+
+  if [[ ${#build_services[@]} -gt 0 ]]; then
+    info "Building: ${build_services[*]}"
+    docker compose --file "$COMPOSE_FILE" --project-directory "$PROJECT_ROOT" \
+      build "${build_services[@]}"
+    ok "Images built."
+  fi
+
+  info "Pulling remote images..."
+  docker compose --file "$COMPOSE_FILE" --project-directory "$PROJECT_ROOT" \
+    pull --ignore-pull-failures "${services[@]}" 2>/dev/null || true
+
+  info "Starting containers..."
+  docker compose --file "$COMPOSE_FILE" --project-directory "$PROJECT_ROOT" \
+    up -d --remove-orphans "${services[@]}"
+
+  ok "Containers started."
+}
+
+# ─── Optional: systemd auto-start ────────────────────────────────────────────
+
+install_systemd() {
+  local service_src="$PROJECT_ROOT/scripts/oaio-stack.service"
+  local service_dst="/etc/systemd/system/oaio-stack.service"
+  [[ -f "$service_src" ]] || return 0
+
+  printf "\n"
+  read -rp "  Install systemd service for auto-start on boot? [y/N]: " yn
+  case "${yn:-N}" in
+    [Yy]*)
+      need_sudo
+      sed "s|WorkingDirectory=.*|WorkingDirectory=${PROJECT_ROOT}|" \
+        "$service_src" | run_root tee "$service_dst" > /dev/null
+      run_root systemctl daemon-reload
+      run_root systemctl enable oaio-stack.service
+      ok "oaio-stack.service enabled."
+      ;;
+    *) info "Skipping systemd install." ;;
+  esac
+}
+
+# ─── Summary ─────────────────────────────────────────────────────────────────
+
+print_summary() {
+  printf "\n"
+  printf "${C_BOLD}${C_GREEN}══════════════════════════════════════════${C_RESET}\n"
+  printf "${C_BOLD}${C_GREEN}  oAIo is running!${C_RESET}\n"
+  printf "${C_BOLD}${C_GREEN}══════════════════════════════════════════${C_RESET}\n\n"
+  printf "  ${C_BOLD}Control Plane:${C_RESET}  http://localhost:9000\n"
+  printf "  ${C_BOLD}oAudio API:${C_RESET}     http://localhost:8002\n"
+  [[ $COMP_LLM    -eq 1 ]] && printf "  ${C_BOLD}Ollama:${C_RESET}         http://localhost:11434\n"
+  [[ $COMP_LLM    -eq 1 ]] && printf "  ${C_BOLD}Open-WebUI:${C_RESET}     http://localhost:3000\n"
+  [[ $COMP_VOICE  -eq 1 ]] && printf "  ${C_BOLD}Kokoro TTS:${C_RESET}     http://localhost:8000\n"
+  [[ $COMP_VOICE  -eq 1 ]] && printf "  ${C_BOLD}RVC proxy:${C_RESET}      http://localhost:8001\n"
+  [[ $COMP_VOICE  -eq 1 ]] && printf "  ${C_BOLD}F5-TTS:${C_RESET}         http://localhost:7860\n"
+  [[ $COMP_RENDER -eq 1 ]] && printf "  ${C_BOLD}ComfyUI:${C_RESET}        http://localhost:8188\n"
+  printf "\n"
+  printf "  ${C_DIM}GPU: ${GPU_VENDOR}"
+  [[ "$GPU_VENDOR" == "amd" ]] && printf " / ${AMD_GFX} (HSA: ${AMD_HSA_VERSION})"
+  printf "${C_RESET}\n"
+  printf "  ${C_DIM}Config : ${ENV_FILE}${C_RESET}\n"
+  printf "  ${C_DIM}Links  : /mnt/oaio/*${C_RESET}\n\n"
+  printf "  Logs:  ${C_BOLD}docker compose -f ${COMPOSE_FILE} logs -f${C_RESET}\n"
+  printf "  Stop:  ${C_BOLD}docker compose -f ${COMPOSE_FILE} down${C_RESET}\n\n"
+}
+
+# ─── Main ────────────────────────────────────────────────────────────────────
+
+main() {
+  banner "oAIo Installer"
+  dim   "  Project : $PROJECT_ROOT"
+  dim   "  User    : $(whoami)  |  Host: $(hostname)"
+  printf "\n"
+
+  check_prereqs
+  select_deployment_type
+  select_components
+  detect_gpu
+  write_env
+  ask_custom_paths
+  run_symlinks
+  build_and_start
+  install_systemd
+  print_summary
+}
+
+main "$@"

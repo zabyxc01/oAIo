@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# System deps: curl for healthchecks, gcc for some Python packages
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl gcc libsndfile1 ffmpeg \
     && rm -rf /var/lib/apt/lists/*

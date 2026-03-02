@@ -11,7 +11,17 @@
       "memory_mode": "vram",
       "bus_preference": "sata",
       "boot_with_system": true,
-      "description": "LLM backend"
+      "description": "LLM backend",
+      "capabilities": [
+        {
+          "type": "models",
+          "label": "LLM Model",
+          "endpoint": "/services/ollama/models",
+          "node_type": "oAIo/llm-model",
+          "action_endpoint": "/services/ollama/models/{id}/load",
+          "action_method": "POST"
+        }
+      ]
     },
     "open-webui": {
       "container": "open-webui",
@@ -23,7 +33,8 @@
       "group": "oLLM",
       "memory_mode": "ram",
       "boot_with_system": true,
-      "description": "LLM chat UI"
+      "description": "LLM chat UI",
+      "capabilities": []
     },
     "kokoro-tts": {
       "container": "kokoro-tts",
@@ -35,7 +46,17 @@
       "group": "oAudio",
       "memory_mode": "ram",
       "boot_with_system": true,
-      "description": "TTS base voice — Kokoro ONNX"
+      "description": "TTS base voice — Kokoro ONNX",
+      "capabilities": [
+        {
+          "type": "voices",
+          "label": "TTS Voice",
+          "endpoint": "/services/kokoro-tts/voices",
+          "node_type": "oAIo/tts-voice",
+          "action_endpoint": null,
+          "action_method": null
+        }
+      ]
     },
     "rvc": {
       "container": "rvc",
@@ -48,7 +69,17 @@
       "memory_mode": "vram",
       "bus_preference": "nvme",
       "boot_with_system": true,
-      "description": "Voice conversion + proxy"
+      "description": "Voice conversion + proxy",
+      "capabilities": [
+        {
+          "type": "voices",
+          "label": "Voice Model",
+          "endpoint": "/services/rvc/models",
+          "node_type": "oAIo/voice-model",
+          "action_endpoint": "/services/rvc/models/{id}/activate",
+          "action_method": "POST"
+        }
+      ]
     },
     "f5-tts": {
       "container": "f5-tts",
@@ -60,7 +91,8 @@
       "group": "oAudio",
       "memory_mode": "vram",
       "boot_with_system": false,
-      "description": "Voice cloning"
+      "description": "Voice cloning",
+      "capabilities": []
     },
     "comfyui": {
       "container": "comfyui",
@@ -73,7 +105,17 @@
       "memory_mode": "vram",
       "bus_preference": "nvme",
       "boot_with_system": false,
-      "description": "Image generation — Flux.1-dev"
+      "description": "Image generation — Flux.1-dev",
+      "capabilities": [
+        {
+          "type": "workflows",
+          "label": "Workflow",
+          "endpoint": "/services/comfyui/workflows",
+          "node_type": "oAIo/workflow",
+          "action_endpoint": null,
+          "action_method": null
+        }
+      ]
     }
   },
   "vram_total_gb": 20,
