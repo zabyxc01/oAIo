@@ -309,6 +309,23 @@ function hideConfirm() {
 
 document.getElementById("mc-cancel").addEventListener("click", hideConfirm);
 
+document.getElementById("emergency-kill-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("emergency-kill-btn");
+  btn.disabled = true;
+  btn.textContent = "⬛ KILLING…";
+  try {
+    await fetch(`${OLLMO_API}/emergency/kill`, { method: "POST" });
+    activeModes = [];
+    renderModeTabs();
+    renderModeGrid();
+    showAlert("warning", "Emergency kill executed — all services stopped.");
+  } catch {}
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = "⬛ KILL ALL";
+  }, 3000);
+});
+
 document.getElementById("mc-activate").addEventListener("click", async () => {
   const modeId = _pendingModeId;
   if (!modeId) return;

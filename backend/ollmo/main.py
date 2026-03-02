@@ -205,12 +205,15 @@ def activate_mode(name: str, force: bool = False):
     active  = set(mode["services"])
     results = []
     for svc_name, svc in services.items():
-        if not svc.get("container"):
+        ctr = svc.get("container")
+        if not ctr:
             continue
         if svc_name in active:
-            results.append(start(svc["container"]))
+            results.append(start(ctr))
         else:
-            results.append(stop(svc["container"]))
+            register_manual_stop(ctr, svc_name, svc.get("priority", 3))
+            threading.Thread(target=stop, args=(ctr,), daemon=True).start()
+            results.append({"name": ctr, "action": "stopping", "ok": True})
 
     _active_modes.add(name)
     _persist_active_modes()
@@ -228,6 +231,23 @@ def deactivate_mode(name: str):
     _active_modes.discard(name)
     _persist_active_modes()
     return {"deactivated": name, "active_modes": list(_active_modes)}
+
+
+@app.post("/emergency/kill")
+def emergency_kill():
+    """Stop all managed containers immediately, clear all active modes."""
+    services = _services_cfg()
+    _active_modes.clear()
+    _persist_active_modes()
+    results = []
+    for svc_name, svc in services.items():
+        ctr = svc.get("container")
+        if not ctr:
+            continue
+        register_manual_stop(ctr, svc_name, svc.get("priority", 3))
+        threading.Thread(target=stop, args=(ctr,), daemon=True).start()
+        results.append(ctr)
+    return {"killed": results, "active_modes": []}
 
 
 @app.get("/modes/{name}/allocations")
