@@ -1,0 +1,15 @@
+{
+  "name": "debugger",
+  "version": "0.1.0",
+  "description": "Live container log streaming and error filtering via Docker SDK",
+  "author": "oAIo",
+  "enabled": true,
+  "backend": {
+    "router": "backend.py",
+    "prefix": "/extensions/debugger"
+  },
+  "frontend": {
+    "nodes": ["nodes.js"]
+  },
+  "services": []
+}
