@@ -70,10 +70,12 @@ RAM tier ceiling is auto-detected per machine: `total_ram - max(8GB, 25%)`. Acti
 
 ### Resource Enforcement
 
-- VRAM projection before mode activation — blocks modes that would OOM
+- **System-aware accounting** — tracks `vram_external` (gaming/other processes) and `vram_headroom` (actually free) via sysfs
+- Mode pre-flight checks against real headroom, not total capacity — if a game is using 8GB, mode activation sees only 12GB available and blocks accordingly
 - Reactive enforcement loop (5s poll) — kills lowest-priority hard-limit service when VRAM exceeds 95%
 - Mode-aware — enforcer pauses when no mode is active (safe for gaming/other GPU use)
 - Priority: ollama=1 (protected), rvc/kokoro=2 (soft), comfyui=3, open-webui=4, f5-tts=5 (first to die)
+- VRAM total read from sysfs dynamically — not hardcoded
 
 ### Modes
 
@@ -140,7 +142,7 @@ All endpoints on port 9000 unless noted.
 | GET | /system/status | Full system snapshot |
 | GET | /vram | GPU VRAM usage |
 | GET | /enforcement/status | Enforcer state + kill order |
-| WS | /ws | 1Hz push: vram/gpu/ram/ram_tier/services/alerts |
+| WS | /ws | 1Hz push: vram/gpu/ram/ram_tier/accounting/active_modes/services/alerts |
 
 ### Services
 | Method | Path | Description |
@@ -263,6 +265,9 @@ All endpoints on port 9000 unless noted.
 | a728869 | Fix: RVC activation via Gradio API |
 | 0f37cab | Fix: /clone auto-transcription via faster-whisper |
 | 0eb4da9 | Debugger extension |
+| 743168c | README |
+| 8a5378b | Install.sh polish — system requirements check (Step 0) |
+| 22ab9e0 | System-aware resource accounting — headroom-based mode pre-flight, vram_external |
 
 ---
 
