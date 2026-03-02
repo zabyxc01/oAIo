@@ -26,31 +26,39 @@
     oaudio/main.py          ← oAudio API (port 8002) — unified voice pipeline
     core/
       vram.py               ← sysfs VRAM reader
-      resources.py          ← VRAM projection + OOM alerts
+      resources.py          ← VRAM projection + OOM alerts + system accounting
       enforcer.py           ← reactive OOM loop (background asyncio task)
+                               register_manual_stop() — prevents crash-detection restart on manual stop
       paths.py              ← symlink management + storage stats
-      docker_control.py     ← Docker SDK wrapper
+      docker_control.py     ← Docker SDK wrapper (stop timeout=3, non-blocking)
+      extensions.py         ← scans extensions/ at startup, loads FastAPI routers
   config/
-    services.json           ← 6 managed services with VRAM/priority/limit_mode
+    services.json           ← 6 managed services with VRAM/priority/limit_mode/auto_restore
     modes.json              ← 7 activation modes with budgets + allocations
     paths.json              ← 14 symlink entries (all green)
     routing.json            ← feature URL mapping (tts, ollama, imggen, stt)
+    active_modes.json       ← persisted active modes — survives restarts (auto-generated)
   frontend/src/
-    index.html              ← single page shell, OLLMO_API declared here ONCE
-    app.js                  ← main UI logic, polling, mode control, paths panel
-    nodes/services.js       ← Litegraph service node definitions
-    nodes/capabilities.js   ← sub-graph capability nodes (models, workflows, voices)
-    panels/timeline.js      ← rolling 120s heatmap
+    index.html              ← 3-tab shell (LIVE/CONFIG/ADVANCED), OLLMO_API declared ONCE
+    app.js                  ← tab switching, WS data → cards, mode confirm flow
+    panels/timeline.js      ← rolling 120s heatmap (VRAM + RAM + GPU + NVMe + SATA)
+    extensions-loader.js    ← injects extension JS/CSS; queues node scripts for lazy load
+    litegraph.js / .css     ← lazy-loaded only when CONFIG tab clicked
+    nodes/services.js       ← LiteGraph service node definitions
+    nodes/capabilities.js   ← sub-graph capability nodes
     style.css               ← all styles
+  extensions/
+    fleet/                  ← multi-node orchestration (enabled)
+    debugger/               ← live container log streaming (enabled)
+    example/                ← reference extension (disabled)
   docker/
-    oaio/Dockerfile         ← control plane image
+    oaio/Dockerfile
     oaio/start.sh           ← starts both uvicorn processes
-    comfyui/Dockerfile      ← ComfyUI image
-  scripts/
-    setup-oaio-symlinks.sh  ← OUTDATED — creates 8 of 14 symlinks, needs update
+    comfyui/Dockerfile
   docker-compose.yml        ← all 7 containers, all volumes via /mnt/oaio/*
+  install.sh                ← system requirements check + symlinks + systemd
   docs/
-    oAIo-path-to-alpha-1.0.md ← this file
+    oAIo-path-to-alpha-1.0.md ← this file (ignition prompt)
 ```
 
 ---
@@ -156,9 +164,14 @@ POST /clone       ref audio + text → F5-TTS basic_tts → WAV
 - **ONLY enforces when at least one mode is active** — safe during gaming, idle, anything else
 - Kill order: highest priority number first (5=first to die, 1=protected)
 - `limit_mode: soft` = warn only, never kill | `limit_mode: hard` = auto-kill on OOM
+- `auto_restore: true/false` per service — controls whether enforcer restarts after kill
+- `register_manual_stop(ctr, svc_name, priority)` — call on manual stop so crash detection ignores it
+- Recovery skips `reason="manual"` and `auto_restore=false` entries
+- Stop endpoint: background thread + timeout=3s — instant UI response, 3s max SIGKILL
 - Cooldown: won't kill same container twice in a row
 - Current: ollama/rvc/kokoro=soft | comfyui(3)/open-webui(4)/f5-tts(5)=hard
 - WARN at 85% (17GB) | HARD at 95% (19GB)
+- Kill log: last 50 events (kill/restore/crash) in WS stream + `/enforcement/status`
 
 ---
 
@@ -186,50 +199,46 @@ POST /clone       ref audio + text → F5-TTS basic_tts → WAV
 ## Current % — Alpha 1.0 Progress
 | Area | % | Notes |
 |---|---|---|
-| Backend/API | 85% | Solid. Enforcement, paths, voice pipeline all working |
-| Frontend/UI | 15% | Working prototype, needs full rebuild for fluid grid |
-| Infrastructure | 85% | Compose portable, symlinks solid, missing .env + install script |
-| Product/Design | 65% | Vision clear, architecture defined |
-| **Overall** | **50%** | |
+| Backend/API | 90% | Enforcement, paths, voice pipeline, extensions, WS all working |
+| Frontend/UI | 70% | 3-tab fluid grid done; CONFIG/nodes parked; ADVANCED unverified |
+| Infrastructure | 90% | Compose portable, symlinks solid, .env + install script exist |
+| Product/Design | 75% | Vision clear, architecture defined, template/node system parked |
+| **Overall** | **80%** | |
 
 ---
 
-## Remaining Build — Priority Order
+## Completed ✅
+- Data-driven service registration (`services.json` capabilities block) ✅
+- WebSocket 1Hz push stream (replaces polling) ✅
+- `.env` file + install script ✅
+- Extension system (`extensions/` manifest, fleet, debugger) ✅
+- 3-tab fluid grid UI (LIVE / CONFIG placeholder / ADVANCED) ✅
+- LIVE cards: mode select, kill log, services (auto-restore toggle), RAM tier, timeline ✅
+- Enforcer: kill log, recovery, crash watch, manual-stop awareness, auto_restore ✅
+- Stop latency fix: background thread + 3s SIGKILL ✅
+- Timeline: resizable heatmap, all rows off by default, user selects views ✅
+- `PATCH /config/services/{name}` endpoint ✅
 
-### Immediate
-- [ ] Server-side node config — `nodes.json` + `GET/POST /config/nodes` (replace localStorage)
-- [ ] Test `/convert` and `/clone` with real audio files
-- [ ] Git commit — milestone checkpoint
-- [ ] Update `setup-oaio-symlinks.sh` to all 14 paths
+## Parked — Next Build
 
-### Core Platform
-- [ ] Data-driven service registration
-  - `capabilities` block in services.json
-  - Frontend auto-generates sub-graph nodes from capabilities array
-  - `POST /services` API — creates entry + symlink in one call
-  - Add Service UI panel
-- [ ] WebSocket — replace 3s polling with push events
+### CONFIG Tab (umbrella for all planning features)
+- [ ] LiteGraph node graph visible in CONFIG tab
+- [ ] Templates — define boot order + workload sequence via nodes, save/load
+- [ ] RAM tier per-template (nodes define which paths are RAM-pinned per session)
+- [ ] Accounting card in CONFIG tab (VRAM/RAM estimation for planned workloads)
 
-### Portability
-- [ ] `.env` file — GPU arch, ports, paths out of compose
-- [ ] Install script — `curl | bash`, detects GPU, asks 3 questions, boots stack
+### RAM Tier
+- [ ] LIVE card: verified end-to-end (symlink flip + pool tracking working)
+- [ ] CONFIG: programmable per template
 
-### Extension System
-- [ ] `oaio-extension.json` manifest spec
-- [ ] Directory watcher — auto-registers extensions dropped into `/mnt/oaio/extensions/`
-- [ ] Extensions run in own containers, enforced like any service
-- [ ] No code runs inside oAIo — Docker isolation is the security boundary
+### Infrastructure
+- [ ] Install script: with/without UI option (headless/server profile)
+- [ ] ADVANCED tab: verify routing form + paths editor save correctly
+- [ ] WS reconnect: clean recovery if connection drops
+- [ ] boot_with_system: oaio boot sequence respects the flag (currently docker compose handles it)
+- [ ] f5-tts OOM on startup — system RAM pressure, no enforcer coverage for host RAM OOM
 
-### Frontend Rebuild (fluid grid)
-- [ ] CSS Grid + container queries shell — reflows to any screen
-- [ ] Page 1: Live — per-container breakdown, event log, gauges
-- [ ] Page 2: Planner — node graph, cost estimator, template builder
-- [ ] Page 3: Config — service registration, paths, routing, extensions
-- [ ] Page 4: Run — mode activation, spin-up sequence, enforcement status
-- [ ] Timeline heatmap → prediction layer (mode color signatures, not live data mirror)
-- [ ] Mobile layout (NexPhone: Android/Windows/Linux triple-boot → browser → Tailscale → oAIo)
-
-### Install Script — Two Step Flow
+### Install Script — Two Step Flow (design unchanged)
 
 **Step 1 — Deployment type (sets context, filters options, sets defaults)**
 ```

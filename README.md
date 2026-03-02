@@ -293,7 +293,7 @@ All endpoints on port 9000 unless noted.
 | 22ab9e0 | System-aware resource accounting — headroom-based mode pre-flight, vram_external |
 | 5f8f990 | Enforcer: kill log, recovery, crash watch, active_modes persistence, stale cache fix |
 | 53be4dd | Cleanup: remove stale SERVICES cache, gitignore active_modes.json |
-| (current) | 3-tab fluid grid UI; timeline heatmap; auto_restore toggle; stop latency fix; manual stop crash detection |
+| de3cd43 | 3-tab fluid grid UI; timeline heatmap; auto_restore toggle; stop latency fix; manual stop crash detection |
 
 ---
 

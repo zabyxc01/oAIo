@@ -135,7 +135,7 @@ function setGauge(barId, labelId, used, total) {
 }
 
 // --- Timeline view toggles ---
-const activeViews = new Set(["vram", "ram", "gpu"]);
+const activeViews = new Set();
 
 const PILL_ROWS = {
   nvme: ["nvme_r", "nvme_w"],
