@@ -22,6 +22,8 @@ from core.docker_control import get_status, start, stop, get_logs, all_status
 from core.paths import get_all_paths, repoint, get_storage_stats
 from core.resources import projected_vram, check_alerts
 from core.enforcer import enforcement_loop, active_modes as _active_modes
+from core.extensions import load_all as _load_extensions, list_all as _list_extensions, \
+    set_enabled as _ext_set_enabled, EXTENSIONS_DIR
 
 OLLAMA_URL        = os.environ.get("OLLAMA_URL",        "http://localhost:11434")
 COMFYUI_USER_PATH = Path(os.environ.get("COMFYUI_USER_PATH", str(Path.home() / "ComfyUI" / "user")))
@@ -504,6 +506,31 @@ def enforcement_status():
         "kill_order":      candidates,
     }
 
+
+# ── Load extensions (routers mounted before static-file catch-all) ───────────
+_load_extensions(app)
+
+
+# ── Extension API ─────────────────────────────────────────────────────────────
+
+@app.get("/extensions")
+def extensions_list():
+    return _list_extensions()
+
+
+@app.post("/extensions/{name}/enable")
+def extensions_enable(name: str):
+    return _ext_set_enabled(name, True)
+
+
+@app.post("/extensions/{name}/disable")
+def extensions_disable(name: str):
+    return _ext_set_enabled(name, False)
+
+
+# ── Serve extension assets — before main frontend catch-all ───────────────────
+if EXTENSIONS_DIR.exists():
+    app.mount("/ext", StaticFiles(directory=str(EXTENSIONS_DIR)), name="extensions")
 
 # ── Serve frontend — must be last (catches all unmatched paths) ───────────────
 _frontend = Path(__file__).parent.parent.parent / "frontend" / "src"

@@ -1,0 +1,22 @@
+{
+  "nodes": {},
+  "jobs": {
+    "99640f79": {
+      "id": "99640f79",
+      "node_id": "cc570073",
+      "node_name": "pandora-local",
+      "type": "service_start",
+      "target": "ollama",
+      "payload": {},
+      "status": "complete",
+      "result": {
+        "name": "ollama",
+        "action": "started",
+        "ok": true
+      },
+      "error": null,
+      "created_at": "2026-03-02T03:08:53.818622+00:00",
+      "completed_at": "2026-03-02T03:08:53.836199+00:00"
+    }
+  }
+}

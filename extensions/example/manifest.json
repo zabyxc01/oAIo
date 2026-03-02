@@ -1,0 +1,15 @@
+{
+  "name": "example",
+  "version": "0.1.0",
+  "description": "Example extension — demonstrates the extension API",
+  "author": "oAIo",
+  "enabled": false,
+  "backend": {
+    "router": "backend.py",
+    "prefix": "/extensions/example"
+  },
+  "frontend": {
+    "nodes": ["nodes.js"]
+  },
+  "services": []
+}

@@ -147,6 +147,7 @@ services:
       - /mnt/oaio/rvc-ref:/rvc/audio
       - /mnt/oaio/comfyui-user:/comfyui-user:ro
       - ./templates:/app/templates
+      - ./extensions:/app/extensions
       - /mnt/oaio:/mnt/oaio
     devices:
       - /dev/kfd:/dev/kfd
