@@ -149,6 +149,10 @@ services:
       - ./templates:/app/templates
       - ./extensions:/app/extensions
       - /mnt/oaio:/mnt/oaio
+      - /mnt/storage:/mnt/storage:ro
+      - /mnt/windows-sata:/mnt/windows-sata:ro
+      - /home/oao/reference-audio:/home/oao/reference-audio:ro
+      - /home/oao/Videos/audio/_EDITED:/home/oao/Videos/audio/_EDITED:ro
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
