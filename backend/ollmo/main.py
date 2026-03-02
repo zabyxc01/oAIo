@@ -21,7 +21,7 @@ from core.vram import get_vram_usage, get_gpu_utilization
 from core.docker_control import get_status, start, stop, get_logs, all_status
 from core.paths import get_all_paths, repoint, get_storage_stats
 from core.resources import projected_vram, check_alerts, get_system_accounting
-from core.enforcer import enforcement_loop, active_modes as _active_modes
+from core.enforcer import enforcement_loop, active_modes as _active_modes, kill_log as _kill_log
 from core import ram_tier
 from core.extensions import load_all as _load_extensions, list_all as _list_extensions, \
     set_enabled as _ext_set_enabled, EXTENSIONS_DIR
@@ -30,8 +30,6 @@ OLLAMA_URL        = os.environ.get("OLLAMA_URL",        "http://localhost:11434"
 COMFYUI_USER_PATH = Path(os.environ.get("COMFYUI_USER_PATH", str(Path.home() / "ComfyUI" / "user")))
 RVC_GRADIO        = os.environ.get("RVC_GRADIO", "http://rvc:7865")
 
-def _services_live():
-    return json.loads((CONFIG_DIR / "services.json").read_text())["services"]
 
 def _docker_client():
     return docker_sdk.from_env()
@@ -45,11 +43,23 @@ async def _rvc_startup_refresh():
         pass  # RVC may not be up yet — not fatal
 
 
+def _persist_active_modes():
+    """Write current active_modes to disk so it survives restarts."""
+    ACTIVE_MODES_FILE.write_text(json.dumps(list(_active_modes)))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Restore active_modes from last session
+    if ACTIVE_MODES_FILE.exists():
+        try:
+            for m in json.loads(ACTIVE_MODES_FILE.read_text()):
+                _active_modes.add(m)
+        except Exception:
+            pass
+
     asyncio.create_task(_rvc_startup_refresh())
     task = asyncio.create_task(
-        enforcement_loop(_services_live, _docker_client)
+        enforcement_loop(_services_cfg, _docker_client)
     )
     yield
     task.cancel()
@@ -68,19 +78,26 @@ app.add_middleware(
 )
 
 CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
-SERVICES       = json.loads((CONFIG_DIR / "services.json").read_text())["services"]
-TEMPLATES_DIR  = Path(__file__).parent.parent.parent / "templates"
-PATHS_CFG_FILE   = CONFIG_DIR / "paths.json"
-ROUTING_CFG_FILE = CONFIG_DIR / "routing.json"
-MODES_CFG_FILE   = CONFIG_DIR / "modes.json"
+TEMPLATES_DIR     = Path(__file__).parent.parent.parent / "templates"
+PATHS_CFG_FILE    = CONFIG_DIR / "paths.json"
+ROUTING_CFG_FILE  = CONFIG_DIR / "routing.json"
+MODES_CFG_FILE    = CONFIG_DIR / "modes.json"
 NODES_CFG_FILE    = CONFIG_DIR / "nodes.json"
 SERVICES_CFG_FILE = CONFIG_DIR / "services.json"
+ACTIVE_MODES_FILE = CONFIG_DIR / "active_modes.json"
+
+# Always read fresh — never cache; services/modes are mutable at runtime
+def _services_cfg() -> dict:
+    return json.loads(SERVICES_CFG_FILE.read_text())["services"]
 
 def _modes() -> dict:
-    """Always read fresh — modes.json is mutable at runtime."""
     return json.loads(MODES_CFG_FILE.read_text())["modes"]
 
-MODES = _modes()  # cached reference for startup validation
+# Snapshot of modes at startup — used by reset endpoint
+_MODES_SNAPSHOT: dict = json.loads(MODES_CFG_FILE.read_text())["modes"]
+
+# Keep SERVICES name for any remaining internal references (stays in sync via _services_cfg)
+SERVICES = _services_cfg()
 
 
 @app.get("/system/status")
@@ -88,7 +105,7 @@ def system_status():
     vram = get_vram_usage()
     gpu  = get_gpu_utilization()
     ram  = psutil.virtual_memory()
-    acct = get_system_accounting(_services_live())
+    acct = get_system_accounting(_services_cfg())
     return {
         "vram":         vram,
         "gpu":          gpu,
@@ -108,35 +125,39 @@ def vram_status():
 
 @app.get("/services")
 def list_services():
-    return SERVICES
+    return _services_cfg()
 
 
 @app.post("/services/{name}/start")
 def start_service(name: str):
-    if name not in SERVICES:
+    services = _services_cfg()
+    if name not in services:
         return {"error": f"Unknown service: {name}"}
-    return start(SERVICES[name]["container"])
+    return start(services[name]["container"])
 
 
 @app.post("/services/{name}/stop")
 def stop_service(name: str):
-    if name not in SERVICES:
+    services = _services_cfg()
+    if name not in services:
         return {"error": f"Unknown service: {name}"}
-    return stop(SERVICES[name]["container"])
+    return stop(services[name]["container"])
 
 
 @app.get("/services/{name}/status")
 def service_status(name: str):
-    if name not in SERVICES:
+    services = _services_cfg()
+    if name not in services:
         return {"error": f"Unknown service: {name}"}
-    return get_status(SERVICES[name]["container"])
+    return get_status(services[name]["container"])
 
 
 @app.get("/services/{name}/logs")
 def service_logs(name: str, lines: int = 50):
-    if name not in SERVICES:
+    services = _services_cfg()
+    if name not in services:
         return {"error": f"Unknown service: {name}"}
-    return {"logs": get_logs(SERVICES[name]["container"], lines)}
+    return {"logs": get_logs(services[name]["container"], lines)}
 
 
 @app.get("/modes")
@@ -150,17 +171,18 @@ def check_mode(name: str):
     modes = _modes()
     if name not in modes:
         return {"error": f"Unknown mode: {name}"}
-    return projected_vram(modes[name], SERVICES)
+    return projected_vram(modes[name], _services_cfg())
 
 
 @app.post("/modes/{name}/activate")
 def activate_mode(name: str, force: bool = False):
-    modes = _modes()
+    modes    = _modes()
+    services = _services_cfg()
     if name not in modes:
         return {"error": f"Unknown mode: {name}"}
     mode = modes[name]
 
-    projection = projected_vram(mode, SERVICES)
+    projection = projected_vram(mode, services)
     if projection["blocked"] and not force:
         return {
             "error":      "VRAM budget exceeded — activation blocked",
@@ -168,9 +190,9 @@ def activate_mode(name: str, force: bool = False):
             "projection": projection,
         }
 
-    active = set(mode["services"])
+    active  = set(mode["services"])
     results = []
-    for svc_name, svc in SERVICES.items():
+    for svc_name, svc in services.items():
         if not svc.get("container"):
             continue
         if svc_name in active:
@@ -179,6 +201,7 @@ def activate_mode(name: str, force: bool = False):
             results.append(stop(svc["container"]))
 
     _active_modes.add(name)
+    _persist_active_modes()
 
     return {
         "mode":       name,
@@ -191,6 +214,7 @@ def activate_mode(name: str, force: bool = False):
 @app.post("/modes/{name}/deactivate")
 def deactivate_mode(name: str):
     _active_modes.discard(name)
+    _persist_active_modes()
     return {"deactivated": name, "active_modes": list(_active_modes)}
 
 
@@ -460,7 +484,7 @@ async def ws_status(websocket: WebSocket):
             vram = get_vram_usage()
             gpu  = get_gpu_utilization()
             ram  = psutil.virtual_memory()
-            svcs = _services_live()
+            svcs = _services_cfg()
             acct = get_system_accounting(svcs)
             payload = {
                 "vram":         vram,
@@ -471,6 +495,7 @@ async def ws_status(websocket: WebSocket):
                 "active_modes": list(_active_modes),
                 "services":     all_status(svcs),
                 "alerts":       check_alerts(),
+                "kill_log":     list(_kill_log)[:10],  # last 10 events
             }
             await websocket.send_json(payload)
             await asyncio.sleep(1)
@@ -511,7 +536,7 @@ def enforcement_status():
     """Current enforcement state — thresholds, live VRAM, what would be killed next."""
     vram = get_vram_usage()
     pct  = vram.get("percent", 0) / 100
-    services = _services_live()
+    services = _services_cfg()
 
     # Determine kill order (for UI visibility)
     candidates = []
@@ -552,7 +577,24 @@ def enforcement_status():
         "active_modes":    list(_active_modes),
         "paused":          not bool(_active_modes),
         "kill_order":      candidates,
+        "kill_log":        list(_kill_log),
     }
+
+
+@app.post("/modes/{name}/reset")
+def reset_mode_allocations(name: str):
+    """Restore a mode's allocations and budget to their startup snapshot values."""
+    if name not in _MODES_SNAPSHOT:
+        return {"error": f"Unknown mode: {name}"}
+    cfg = json.loads(MODES_CFG_FILE.read_text())
+    if name not in cfg["modes"]:
+        return {"error": f"Unknown mode: {name}"}
+    snap = _MODES_SNAPSHOT[name]
+    cfg["modes"][name]["allocations"]   = snap.get("allocations", {})
+    cfg["modes"][name]["vram_budget_gb"] = snap.get("vram_budget_gb", 0)
+    MODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    return {"reset": name, "allocations": cfg["modes"][name]["allocations"],
+            "vram_budget_gb": cfg["modes"][name]["vram_budget_gb"]}
 
 
 # ── Load extensions (routers mounted before static-file catch-all) ───────────
