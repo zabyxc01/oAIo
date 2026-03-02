@@ -5,3 +5,4 @@ __pycache__/
 .env
 templates/*.json
 docs/stack/
+config/active_modes.json

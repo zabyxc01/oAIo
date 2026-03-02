@@ -96,8 +96,6 @@ def _modes() -> dict:
 # Snapshot of modes at startup — used by reset endpoint
 _MODES_SNAPSHOT: dict = json.loads(MODES_CFG_FILE.read_text())["modes"]
 
-# Keep SERVICES name for any remaining internal references (stays in sync via _services_cfg)
-SERVICES = _services_cfg()
 
 
 @app.get("/system/status")
@@ -113,7 +111,7 @@ def system_status():
         "ram_tier":     ram_tier.get_usage(),
         "accounting":   acct,
         "active_modes": list(_active_modes),
-        "services":     all_status(SERVICES),
+        "services":     all_status(_services_cfg()),
         "alerts":       check_alerts(),
     }
 
@@ -240,7 +238,7 @@ def set_allocation(name: str, service: str, body: dict):
         return {"error": "gb is required"}
     cfg["modes"][name].setdefault("allocations", {})[service] = round(float(gb), 1)
     MODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
-    return projected_vram(cfg["modes"][name], SERVICES)
+    return projected_vram(cfg["modes"][name], _services_cfg())
 
 
 @app.post("/modes/{name}/budget")
@@ -254,7 +252,7 @@ def set_budget(name: str, body: dict):
         return {"error": "gb is required"}
     cfg["modes"][name]["vram_budget_gb"] = round(float(gb), 1)
     MODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
-    return projected_vram(cfg["modes"][name], SERVICES)
+    return projected_vram(cfg["modes"][name], _services_cfg())
 
 
 @app.get("/templates")
@@ -271,7 +269,7 @@ def save_template(name: str, description: str = ""):
         "description": description,
         "services": {
             svc: get_status(cfg["container"])
-            for svc, cfg in SERVICES.items()
+            for svc, cfg in _services_cfg().items()
             if cfg.get("container")
         }
     }
@@ -286,12 +284,15 @@ def load_template(name: str):
     if not path.exists():
         return {"error": f"Template not found: {name}"}
     template = json.loads(path.read_text())
-    results = []
+    services = _services_cfg()
+    results  = []
     for svc_name, state in template["services"].items():
+        if svc_name not in services:
+            continue
         if state.get("status") == "running":
-            results.append(start(SERVICES[svc_name]["container"]))
+            results.append(start(services[svc_name]["container"]))
         else:
-            results.append(stop(SERVICES[svc_name]["container"]))
+            results.append(stop(services[svc_name]["container"]))
     return {"loaded": name, "results": results}
 
 
