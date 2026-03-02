@@ -34,9 +34,28 @@ PROXY_OUT   = OUTPUT_BASE / "proxy"
 WEBUI_OUT   = OUTPUT_BASE / "webui"
 CLONE_OUT   = OUTPUT_BASE / "clone"
 TEMP_OUT    = OUTPUT_BASE / "temp"
+HF_CACHE    = Path(os.environ.get("HF_HOME", "/hf-cache"))
 
 for d in [PROXY_OUT, WEBUI_OUT, CLONE_OUT, TEMP_OUT]:
     d.mkdir(parents=True, exist_ok=True)
+
+# Lazy-loaded Whisper model for ref_text auto-transcription
+_whisper_model = None
+
+def _transcribe(audio_bytes: bytes, filename: str) -> str:
+    """Auto-transcribe reference audio using faster-whisper (tiny model, CPU)."""
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel("tiny", device="cpu",
+                                      download_root=str(HF_CACHE / "whisper"))
+    tmp = TEMP_OUT / f"ref_{uuid.uuid4().hex}_{filename}"
+    tmp.write_bytes(audio_bytes)
+    try:
+        segments, _ = _whisper_model.transcribe(str(tmp), beam_size=1)
+        return " ".join(s.text.strip() for s in segments)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 class SpeakRequest(BaseModel):
@@ -97,8 +116,17 @@ async def clone(
     speed: float = Form(default=1.0),
     remove_silence: bool = Form(default=False),
 ):
-    """Reference audio + text → F5-TTS voice cloning → WAV."""
+    """Reference audio + text → F5-TTS voice cloning → WAV.
+    If ref_text is empty, auto-transcribes the reference audio via Whisper tiny.
+    """
     audio_bytes = await ref_audio.read()
+
+    if not ref_text.strip():
+        import asyncio
+        loop = asyncio.get_event_loop()
+        ref_text = await loop.run_in_executor(
+            None, _transcribe, audio_bytes, ref_audio.filename or "ref.wav"
+        )
 
     async with httpx.AsyncClient(timeout=300.0) as client:
         # 1. Upload ref audio to F5-TTS
