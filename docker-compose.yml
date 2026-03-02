@@ -146,6 +146,7 @@ services:
       - /sys/class/drm:/sys/class/drm:ro
       - /mnt/oaio/rvc-ref:/rvc/audio
       - /mnt/oaio/comfyui-user:/comfyui-user:ro
+      - ./config:/app/config
       - ./templates:/app/templates
       - ./extensions:/app/extensions
       - ./frontend:/app/frontend
