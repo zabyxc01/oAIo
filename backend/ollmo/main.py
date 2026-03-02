@@ -28,6 +28,7 @@ from core.extensions import load_all as _load_extensions, list_all as _list_exte
 
 OLLAMA_URL        = os.environ.get("OLLAMA_URL",        "http://localhost:11434")
 COMFYUI_USER_PATH = Path(os.environ.get("COMFYUI_USER_PATH", str(Path.home() / "ComfyUI" / "user")))
+RVC_GRADIO        = os.environ.get("RVC_GRADIO", "http://rvc:7865")
 
 def _services_live():
     return json.loads((CONFIG_DIR / "services.json").read_text())["services"]
@@ -35,8 +36,18 @@ def _services_live():
 def _docker_client():
     return docker_sdk.from_env()
 
+async def _rvc_startup_refresh():
+    """On boot, call RVC Gradio /infer_refresh so the model list is populated."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(f"{RVC_GRADIO}/run/infer_refresh", json={"data": []})
+    except Exception:
+        pass  # RVC may not be up yet — not fatal
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    asyncio.create_task(_rvc_startup_refresh())
     task = asyncio.create_task(
         enforcement_loop(_services_live, _docker_client)
     )
@@ -295,21 +306,23 @@ def rvc_models():
 
 
 @app.post("/services/rvc/models/{name}/activate")
-def activate_rvc_model(name: str):
+async def activate_rvc_model(name: str):
+    """
+    Switch RVC active voice model via the Gradio API.
+    Calls /infer_refresh (populates list) then /infer_change_voice (selects model).
+    """
     try:
-        client = docker_sdk.from_env()
-        container = client.containers.get("rvc")
-        # Find the index file for this model
-        idx_result = container.exec_run(
-            f"find /rvc/assets/indices -name '*{name}*' -name '*.index'"
-        )
-        index_path = idx_result.output.decode().strip().split("\n")[0] or ""
-        # Restart proxy with new model env vars
-        container.exec_run(
-            f"bash -c 'pkill -f rvc_proxy.py; "
-            f"RVC_MODEL={name}.pth RVC_INDEX={index_path} "
-            f"python3 /rvc/rvc_proxy.py > /tmp/proxy.log 2>&1 &'"
-        )
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # Refresh model list
+            await client.post(f"{RVC_GRADIO}/run/infer_refresh", json={"data": []})
+            # Switch to requested model
+            r = await client.post(
+                f"{RVC_GRADIO}/run/infer_change_voice",
+                json={"data": [f"{name}.pth", 0.33, 0.33]},
+            )
+        result = r.json()
+        # Last item in returns is the auto-detected index path
+        index_path = result.get("data", [None, None, None, None])[-1] or ""
         return {"activated": name, "index": index_path}
     except Exception as e:
         return {"error": str(e)}
