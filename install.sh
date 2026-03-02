@@ -60,14 +60,213 @@ run_root() {
   $SUDO "$@"
 }
 
+# ─── Step 0 — System requirements check ──────────────────────────────────────
+
+check_system() {
+  step "Step 0 — System Requirements"
+  printf "\n"
+
+  local _errors=0
+  local _warnings=0
+
+  # ── Docker present + daemon reachable ────────────────────────────────────
+  if command -v docker &>/dev/null; then
+    local _docker_ver
+    _docker_ver=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',' || echo "?")
+    if docker info &>/dev/null 2>&1; then
+      ok "Docker ${_docker_ver}"
+    else
+      err "Docker ${_docker_ver} found but daemon not reachable (not in docker group?)"
+      (( _errors++ )) || true
+    fi
+  else
+    err "Docker not found — install from https://docs.docker.com/engine/install/"
+    (( _errors++ )) || true
+  fi
+
+  # ── docker compose v2 ────────────────────────────────────────────────────
+  if docker compose version &>/dev/null 2>&1; then
+    local _compose_ver
+    _compose_ver=$(docker compose version --short 2>/dev/null || echo "v2")
+    ok "docker compose ${_compose_ver}"
+  else
+    err "docker compose (v2 plugin) not found — install the Docker Compose plugin"
+    (( _errors++ )) || true
+  fi
+
+  # ── RAM check ────────────────────────────────────────────────────────────
+  local _ram_kb _ram_gb
+  _ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+  _ram_gb=$(( _ram_kb / 1024 / 1024 ))
+  if [[ $_ram_gb -lt 8 ]]; then
+    err "RAM: ${_ram_gb} GB — minimum 8 GB required"
+    (( _errors++ )) || true
+  elif [[ $_ram_gb -lt 16 ]]; then
+    warn "RAM: ${_ram_gb} GB — 16 GB or more recommended"
+    (( _warnings++ )) || true
+  else
+    ok "RAM: ${_ram_gb} GB"
+  fi
+
+  # ── Disk free at project root ─────────────────────────────────────────────
+  local _disk_avail_kb _disk_avail_gb
+  _disk_avail_kb=$(df -k "$PROJECT_ROOT" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)
+  _disk_avail_gb=$(( _disk_avail_kb / 1024 / 1024 ))
+  if [[ $_disk_avail_gb -lt 50 ]]; then
+    warn "Disk: ${_disk_avail_gb} GB free at ${PROJECT_ROOT} — 50 GB or more recommended"
+    (( _warnings++ )) || true
+  else
+    ok "Disk: ${_disk_avail_gb} GB free at ${PROJECT_ROOT}"
+  fi
+
+  # ── GPU detection (required: AMD or NVIDIA) ───────────────────────────────
+  local _sys_gpu_vendor="none"
+  local _sys_amd_gfx="" _sys_amd_hsa=""
+
+  if [[ -e /dev/kfd ]]; then
+    _sys_gpu_vendor="amd"
+
+    # GFX auto-detect (same logic as detect_gpu, reported here)
+    local _gfx_raw=""
+    if command -v rocminfo &>/dev/null; then
+      _gfx_raw=$(rocminfo 2>/dev/null \
+        | grep -i "Name:" | grep -oi "gfx[0-9a-f]*" | head -1 || true)
+    fi
+    if [[ -z "$_gfx_raw" ]]; then
+      for _uevent in /sys/class/drm/card*/device/uevent; do
+        [[ -f "$_uevent" ]] || continue
+        local _cand
+        _cand=$(grep -oi "gfx[0-9a-f]*" "$_uevent" 2>/dev/null | head -1 || true)
+        [[ -n "$_cand" ]] && { _gfx_raw="$_cand"; break; }
+      done
+    fi
+    if [[ -z "$_gfx_raw" ]]; then
+      for _namefile in /sys/class/drm/card*/device/ip_discovery/die/*/gfx/*/name; do
+        [[ -f "$_namefile" ]] || continue
+        local _raw
+        _raw=$(cat "$_namefile" 2>/dev/null || true)
+        if [[ "$_raw" =~ (gfx[0-9a-f]+) ]]; then
+          _gfx_raw="${BASH_REMATCH[1]}"; break
+        fi
+      done
+    fi
+
+    if [[ -n "$_gfx_raw" ]]; then
+      _sys_amd_gfx=$(printf '%s' "$_gfx_raw" | tr '[:upper:]' '[:lower:]')
+      local _digits="${_sys_amd_gfx#gfx}" _len=${#_digits}
+      if [[ $_len -eq 4 ]]; then
+        _sys_amd_hsa="${_digits:0:2}.${_digits:2:1}.${_digits:3:1}"
+      elif [[ $_len -eq 3 ]]; then
+        _sys_amd_hsa="${_digits:0:1}.${_digits:1:1}.${_digits:2:1}"
+      else
+        _sys_amd_hsa="${_digits}.0.0"
+      fi
+    else
+      _sys_amd_gfx="unknown"
+      _sys_amd_hsa="?"
+    fi
+
+    ok "AMD GPU detected (${_sys_amd_gfx})"
+
+    # ROCm installed check
+    local _rocm_ver="unknown"
+    if [[ -f /opt/rocm/.info/version ]]; then
+      _rocm_ver=$(cat /opt/rocm/.info/version 2>/dev/null | head -1 | tr -d '[:space:]' || echo "unknown")
+    elif command -v rocm-smi &>/dev/null; then
+      _rocm_ver=$(rocm-smi --version 2>/dev/null | grep -i "ROCm" | grep -oi "[0-9][0-9.]*" | head -1 || echo "unknown")
+    fi
+
+    if [[ -f /opt/rocm/bin/rocminfo ]] || command -v rocm-smi &>/dev/null; then
+      # version comparison: warn if < 5.0
+      local _rocm_major
+      _rocm_major=$(printf '%s' "$_rocm_ver" | cut -d. -f1)
+      if [[ "$_rocm_major" =~ ^[0-9]+$ ]] && [[ "$_rocm_major" -lt 5 ]]; then
+        warn "ROCm ${_rocm_ver} installed — upgrade to 5.0+ recommended"
+        (( _warnings++ )) || true
+      else
+        ok "ROCm ${_rocm_ver} installed"
+      fi
+    else
+      warn "ROCm not detected — install from https://rocm.docs.amd.com/"
+      (( _warnings++ )) || true
+    fi
+
+    ok "GFX target: ${_sys_amd_gfx} (HSA: ${_sys_amd_hsa})"
+
+  elif command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null 2>&1; then
+    _sys_gpu_vendor="nvidia"
+    local _nvgpu
+    _nvgpu=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown")
+    ok "NVIDIA GPU detected (${_nvgpu})"
+  else
+    err "No GPU detected — AMD /dev/kfd or nvidia-smi required"
+    (( _errors++ )) || true
+  fi
+
+  # ── SAM / Resizable BAR (optional) ───────────────────────────────────────
+  local _sam_found=0
+  for _res in /sys/bus/pci/devices/*/resource; do
+    [[ -f "$_res" ]] || continue
+    local _line0
+    _line0=$(head -1 "$_res" 2>/dev/null || true)
+    # format: 0x<start> 0x<end> 0x<flags>
+    if [[ "$_line0" =~ ^0x([0-9a-fA-F]+)[[:space:]]+0x([0-9a-fA-F]+) ]]; then
+      local _start _end _size
+      _start=$(( 16#${BASH_REMATCH[1]} ))
+      _end=$(( 16#${BASH_REMATCH[2]} ))
+      _size=$(( _end - _start + 1 ))
+      if [[ $_size -ge $(( 4 * 1024 * 1024 * 1024 )) ]]; then
+        _sam_found=1; break
+      fi
+    fi
+  done
+  if [[ $_sam_found -eq 1 ]]; then
+    ok "SAM (Resizable BAR): enabled"
+  else
+    warn "SAM (Resizable BAR): not detected — enable in BIOS: Above 4G Decoding + Re-Size BAR"
+    (( _warnings++ )) || true
+  fi
+
+  # ── Thunderbolt (optional) ────────────────────────────────────────────────
+  if [[ -d /sys/bus/thunderbolt/devices ]]; then
+    local _tb_count
+    _tb_count=$(ls /sys/bus/thunderbolt/devices/ 2>/dev/null | wc -l || echo 0)
+    if [[ $_tb_count -gt 0 ]]; then
+      ok "Thunderbolt: ${_tb_count} controller(s)"
+    else
+      ok "Thunderbolt: bus present, no controllers"
+    fi
+  else
+    info "Thunderbolt: not present"
+  fi
+
+  # ── CPU cores (informational) ─────────────────────────────────────────────
+  local _threads
+  _threads=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 0)
+  if [[ $_threads -lt 8 ]]; then
+    warn "CPU: ${_threads} threads — 8+ recommended for running multiple containers"
+    (( _warnings++ )) || true
+  else
+    printf "  ${C_BLUE}•${C_RESET} CPU: ${_threads} threads\n"
+  fi
+
+  printf "\n"
+  printf "  System check complete. ${_errors} error(s), ${_warnings} warning(s).\n"
+  printf "\n"
+
+  if [[ $_errors -gt 0 ]]; then
+    err "System check failed with ${_errors} error(s). Fix the above issues and re-run."
+    exit 1
+  fi
+}
+
 # ─── Prereq check ────────────────────────────────────────────────────────────
 
 check_prereqs() {
   step "Checking prerequisites"
   local missing=()
 
-  command -v docker &>/dev/null || missing+=("docker")
-  command -v git    &>/dev/null || missing+=("git")
+  command -v git &>/dev/null || missing+=("git")
 
   if [[ ${#missing[@]} -gt 0 ]]; then
     err "Missing required tools: ${missing[*]}"
@@ -75,20 +274,11 @@ check_prereqs() {
     exit 1
   fi
 
-  if ! docker info &>/dev/null 2>&1; then
-    warn "Docker daemon is not reachable as the current user."
-    warn "Adding $USER to the docker group..."
-    need_sudo
-    run_root usermod -aG docker "$USER"
-    warn "Log out and back in (or: newgrp docker) then re-run this script."
-    exit 1
-  fi
-
   if ! docker compose version &>/dev/null 2>&1; then
     die "docker compose (v2 plugin) not found. Install the Docker Compose plugin."
   fi
 
-  ok "docker $(docker --version | awk '{print $3}' | tr -d ',')"
+  ok "git $(git --version | awk '{print $3}')"
   ok "docker compose $(docker compose version --short 2>/dev/null || echo 'v2')"
 }
 
@@ -438,6 +628,53 @@ run_symlinks() {
 
   [[ -f "$ENV_FILE" ]] && \
     sed -i "s|^OLLAMA_MODELS_DIR=.*|OLLAMA_MODELS_DIR=${OLLAMA_MODELS_PATH}|" "$ENV_FILE"
+
+  update_paths_config
+}
+
+update_paths_config() {
+  local _cfg="${PROJECT_ROOT}/config/paths.json"
+  [[ -f "$_cfg" ]] || { warn "config/paths.json not found — skipping paths sync."; return 0; }
+
+  info "Syncing config/paths.json with configured paths..."
+
+  python3 - <<PYEOF
+import json, sys
+
+cfg_path = "${_cfg}"
+with open(cfg_path, "r") as f:
+    cfg = json.load(f)
+
+updates = {
+    "ollama":        "${OLLAMA_MODELS_PATH}",
+    "models":        "${COMFYUI_MODELS_PATH}",
+    "lora":          "${COMFYUI_MODELS_PATH}/loras",
+    "custom-nodes":  "${COMFYUI_BASE_PATH}/custom_nodes",
+    "comfyui-user":  "${COMFYUI_BASE_PATH}/user",
+    "outputs":       "${COMFYUI_BASE_PATH}/output",
+    "inputs":        "${COMFYUI_BASE_PATH}/input",
+    "audio":         "${AUDIO_PATH}",
+    "kokoro-voices": "${AUDIO_PATH}/kokoro-voices",
+    "hf-cache":      "${HF_CACHE_PATH}",
+    "ref-audio":     "${REF_AUDIO_PATH}",
+    "rvc-ref":       "${RVC_REF_PATH}",
+    "rvc-weights":   "${AUDIO_PATH}/rvc-weights",
+    "rvc-indices":   "${AUDIO_PATH}/rvc-indices",
+    "swap":          "${STORAGE_ROOT}/swap",
+    "training":      "${TRAINING_PATH}",
+}
+
+for key, new_target in updates.items():
+    if key in cfg:
+        cfg[key]["default_target"] = new_target
+
+with open(cfg_path, "w") as f:
+    json.dump(cfg, f, indent=2)
+
+print("  paths.json updated with", len(updates), "entries")
+PYEOF
+
+  ok "config/paths.json synced."
 }
 
 # ─── Step 5 — Build + compose up ─────────────────────────────────────────────
@@ -449,8 +686,8 @@ build_and_start() {
   [[ $COMP_LLM    -eq 1 ]] && services+=("ollama" "open-webui")
   [[ $COMP_VOICE  -eq 1 ]] && services+=("kokoro-tts" "rvc" "f5-tts")
   [[ $COMP_RENDER -eq 1 ]] && services+=("comfyui")
-  [[ $COMP_TRAINING -eq 1 ]] && warn "Training Stack: placeholder — no containers yet."
-  [[ $COMP_FLEET    -eq 1 ]] && warn "Fleet Services: placeholder — no containers yet."
+  [[ $COMP_TRAINING -eq 1 ]] && warn "Training Stack: no containers yet — skipping."
+  [[ $COMP_FLEET    -eq 1 ]] && info "Fleet extension is always active — no extra containers needed."
 
   info "Services: ${services[*]}"
 
@@ -475,6 +712,26 @@ build_and_start() {
     up -d --remove-orphans "${services[@]}"
 
   ok "Containers started."
+
+  # ── Post-start health check ───────────────────────────────────────────────
+  local _port="${OAIO_PORT:-9000}"
+  local _url="http://localhost:${_port}/system/status"
+  local _elapsed=0 _healthy=0
+
+  info "Waiting for oAIo API at ${_url} ..."
+  while [[ $_elapsed -lt 15 ]]; do
+    if curl -sf "$_url" &>/dev/null; then
+      _healthy=1; break
+    fi
+    sleep 2
+    _elapsed=$(( _elapsed + 2 ))
+  done
+
+  if [[ $_healthy -eq 1 ]]; then
+    ok "oAIo API healthy at http://localhost:${_port}"
+  else
+    warn "API not responding yet — check: docker compose logs oaio"
+  fi
 }
 
 # ─── Optional: systemd auto-start ────────────────────────────────────────────
@@ -515,6 +772,9 @@ print_summary() {
   [[ $COMP_VOICE  -eq 1 ]] && printf "  ${C_BOLD}F5-TTS:${C_RESET}         http://localhost:7860\n"
   [[ $COMP_RENDER -eq 1 ]] && printf "  ${C_BOLD}ComfyUI:${C_RESET}        http://localhost:8188\n"
   printf "\n"
+  printf "  ${C_BOLD}Extensions:${C_RESET}     fleet (multi-node orchestration)\n"
+  printf "                  debugger (live log streaming)\n"
+  printf "\n"
   printf "  ${C_DIM}GPU: ${GPU_VENDOR}"
   [[ "$GPU_VENDOR" == "amd" ]] && printf " / ${AMD_GFX} (HSA: ${AMD_HSA_VERSION})"
   printf "${C_RESET}\n"
@@ -532,6 +792,7 @@ main() {
   dim   "  User    : $(whoami)  |  Host: $(hostname)"
   printf "\n"
 
+  check_system
   check_prereqs
   select_deployment_type
   select_components
