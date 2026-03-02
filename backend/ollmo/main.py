@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.vram import get_vram_usage, get_gpu_utilization
 from core.docker_control import get_status, start, stop, get_logs, all_status
 from core.paths import get_all_paths, repoint, get_storage_stats
-from core.resources import projected_vram, check_alerts
+from core.resources import projected_vram, check_alerts, get_system_accounting
 from core.enforcer import enforcement_loop, active_modes as _active_modes
 from core import ram_tier
 from core.extensions import load_all as _load_extensions, list_all as _list_extensions, \
@@ -86,15 +86,18 @@ MODES = _modes()  # cached reference for startup validation
 @app.get("/system/status")
 def system_status():
     vram = get_vram_usage()
-    gpu = get_gpu_utilization()
-    ram = psutil.virtual_memory()
+    gpu  = get_gpu_utilization()
+    ram  = psutil.virtual_memory()
+    acct = get_system_accounting(_services_live())
     return {
-        "vram":     vram,
-        "gpu":      gpu,
-        "ram":      {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
-        "ram_tier": ram_tier.get_usage(),
-        "services": all_status(SERVICES),
-        "alerts":   check_alerts(),
+        "vram":         vram,
+        "gpu":          gpu,
+        "ram":          {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
+        "ram_tier":     ram_tier.get_usage(),
+        "accounting":   acct,
+        "active_modes": list(_active_modes),
+        "services":     all_status(SERVICES),
+        "alerts":       check_alerts(),
     }
 
 
@@ -457,13 +460,17 @@ async def ws_status(websocket: WebSocket):
             vram = get_vram_usage()
             gpu  = get_gpu_utilization()
             ram  = psutil.virtual_memory()
+            svcs = _services_live()
+            acct = get_system_accounting(svcs)
             payload = {
-                "vram":     vram,
-                "gpu":      gpu,
-                "ram":      {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
-                "ram_tier": ram_tier.get_usage(),
-                "services": all_status(SERVICES),
-                "alerts":   check_alerts(),
+                "vram":         vram,
+                "gpu":          gpu,
+                "ram":          {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
+                "ram_tier":     ram_tier.get_usage(),
+                "accounting":   acct,
+                "active_modes": list(_active_modes),
+                "services":     all_status(svcs),
+                "alerts":       check_alerts(),
             }
             await websocket.send_json(payload)
             await asyncio.sleep(1)
@@ -532,14 +539,15 @@ def enforcement_status():
     except Exception:
         pass
 
-    from core.resources import WARN_THRESHOLD, HARD_THRESHOLD, VRAM_TOTAL_GB
+    from core.resources import WARN_THRESHOLD, HARD_THRESHOLD, _FALLBACK_TOTAL
+    vram_total = vram.get("total_gb", _FALLBACK_TOTAL)
     return {
         "vram":            vram,
         "pct":             round(pct * 100, 1),
         "warn_threshold":  WARN_THRESHOLD,
         "hard_threshold":  HARD_THRESHOLD,
-        "warn_at_gb":      round(VRAM_TOTAL_GB * WARN_THRESHOLD, 1),
-        "hard_at_gb":      round(VRAM_TOTAL_GB * HARD_THRESHOLD, 1),
+        "warn_at_gb":      round(vram_total * WARN_THRESHOLD, 1),
+        "hard_at_gb":      round(vram_total * HARD_THRESHOLD, 1),
         "enforcing":       pct >= HARD_THRESHOLD and bool(_active_modes),
         "active_modes":    list(_active_modes),
         "paused":          not bool(_active_modes),
