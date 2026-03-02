@@ -2,7 +2,7 @@
 
 Local AI workstation orchestration platform for SYS-PANDORA-OAO and compatible systems.
 
-oAIo manages GPU memory, service lifecycles, storage tiers, voice pipelines, image generation, and multi-node fleet coordination — all from a single control plane with a LiteGraph node-graph UI.
+oAIo manages GPU memory, service lifecycles, storage tiers, voice pipelines, image generation, and multi-node fleet coordination — all from a single control plane with a 3-tab fluid-grid UI.
 
 ---
 
@@ -68,14 +68,35 @@ Managed via `POST /config/paths/{name}` — accepts absolute path or `"ram"` / `
 
 RAM tier ceiling is auto-detected per machine: `total_ram - max(8GB, 25%)`. Activates via symlink flip, tracked in the WS stream.
 
+### UI — 3-Tab Fluid Grid
+
+**LIVE tab** — cards that update from the 1Hz WS stream:
+- **Mode Select** — all modes with VRAM estimate; active modes highlighted
+- **VRAM / RAM Accounting** — used / external / headroom with stacked bar
+- **Kill Log** — last 10 enforcer events (kill / crash / restore) with timestamps
+- **Services** — per-service status dot, start/stop buttons, VRAM estimate, and auto-restore toggle
+- **RAM Tier** — path list with current tier badge and NVMe↔RAM toggle
+- **Timeline** — resizable heat-map canvas (VRAM + RAM + GPU% + NVMe R/W + SATA R/W); drag handle to resize; view toggles
+
+**CONFIG tab** — LiteGraph node-graph (lazy-loaded; placeholder until clicked)
+
+**ADVANCED tab** — storage paths, routing URLs, templates, API reference
+
 ### Resource Enforcement
 
 - **System-aware accounting** — tracks `vram_external` (gaming/other processes) and `vram_headroom` (actually free) via sysfs
-- Mode pre-flight checks against real headroom, not total capacity — if a game is using 8GB, mode activation sees only 12GB available and blocks accordingly
+- Mode pre-flight checks against real headroom — if a game uses 8GB, mode activation sees only 12GB available and blocks accordingly
 - Reactive enforcement loop (5s poll) — kills lowest-priority hard-limit service when VRAM exceeds 95%
+- **Kill log** — last 50 events (kill/restore/crash) with VRAM snapshot and timestamp; in WS stream and `/enforcement/status`
+- **Recovery** — enforcer-killed containers automatically restarted after 30s when VRAM drops below 85%
+- **Per-service `auto_restore`** — toggle per service in the UI or via `PATCH /config/services/{name}`; off = stays stopped after kill
+- **Manual stop awareness** — manually stopping a service via UI suppresses crash detection; enforcer won't fight the user
+- **Crash detection** — unexpected container exits (OOM, f5-tts startup pressure, etc.) detected and restored with same 30s backoff
+- **active_modes persisted** — survives oaio restarts via `config/active_modes.json`; enforcer resumes correct state on boot
 - Mode-aware — enforcer pauses when no mode is active (safe for gaming/other GPU use)
 - Priority: ollama=1 (protected), rvc/kokoro=2 (soft), comfyui=3, open-webui=4, f5-tts=5 (first to die)
 - VRAM total read from sysfs dynamically — not hardcoded
+- Stop latency: background thread + 3s SIGKILL timeout — UI responds instantly, container gone within 3s
 
 ### Modes
 
@@ -141,8 +162,8 @@ All endpoints on port 9000 unless noted.
 |--------|------|-------------|
 | GET | /system/status | Full system snapshot |
 | GET | /vram | GPU VRAM usage |
-| GET | /enforcement/status | Enforcer state + kill order |
-| WS | /ws | 1Hz push: vram/gpu/ram/ram_tier/accounting/active_modes/services/alerts |
+| GET | /enforcement/status | Enforcer state, kill order, full kill log |
+| WS | /ws | 1Hz push: vram/gpu/ram/ram_tier/accounting/active_modes/services/alerts/kill_log |
 
 ### Services
 | Method | Path | Description |
@@ -164,6 +185,7 @@ All endpoints on port 9000 unless noted.
 | POST | /modes/{name}/activate | Activate mode (start services) |
 | POST | /modes/{name}/deactivate | Deactivate mode |
 | GET | /modes/{name}/check | VRAM projection (dry run) |
+| POST | /modes/{name}/reset | Restore allocations + budget to startup defaults |
 
 ### Config
 | Method | Path | Description |
@@ -171,7 +193,8 @@ All endpoints on port 9000 unless noted.
 | GET | /config/paths | All symlink paths + tier + exists |
 | POST | /config/paths/{name} | Repoint symlink (or `"ram"`/`"default"`) |
 | GET | /config/services | Service registry |
-| POST | /config/services | Update service registry |
+| POST | /config/services | Register new service |
+| PATCH | /config/services/{name} | Update service fields (priority, limit_mode, auto_restore, …) |
 | GET | /config/routing | Routing config |
 | GET | /config/storage/stats | NVMe/SATA MB/s |
 
@@ -268,6 +291,9 @@ All endpoints on port 9000 unless noted.
 | 743168c | README |
 | 8a5378b | Install.sh polish — system requirements check (Step 0) |
 | 22ab9e0 | System-aware resource accounting — headroom-based mode pre-flight, vram_external |
+| 5f8f990 | Enforcer: kill log, recovery, crash watch, active_modes persistence, stale cache fix |
+| 53be4dd | Cleanup: remove stale SERVICES cache, gitignore active_modes.json |
+| (current) | 3-tab fluid grid UI; timeline heatmap; auto_restore toggle; stop latency fix; manual stop crash detection |
 
 ---
 

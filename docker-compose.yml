@@ -148,6 +148,7 @@ services:
       - /mnt/oaio/comfyui-user:/comfyui-user:ro
       - ./templates:/app/templates
       - ./extensions:/app/extensions
+      - ./frontend:/app/frontend
       - /mnt/oaio:/mnt/oaio
       - /mnt/storage:/mnt/storage:ro
       - /mnt/windows-sata:/mnt/windows-sata:ro

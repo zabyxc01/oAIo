@@ -3,34 +3,127 @@
  */
 
 // OLLMO_API defined globally in index.html
-const POLL_MS = 3000;
 
-// --- Litegraph setup ---
-const graph  = new LGraph();
-const canvas = new LGraphCanvas("#node-canvas", graph);
+// --- Visible JS error reporting ---
+window.onerror = (msg, src, line) => {
+  const el = document.getElementById("alert-banner");
+  if (el) {
+    el.textContent = `JS error: ${msg} (${(src||'').split('/').pop()}:${line})`;
+    el.className = "alert-banner critical";
+    el.classList.remove("hidden");
+  }
+};
 
-canvas.background_image = null;
-canvas.render_shadows   = false;
-canvas.show_info        = false;
+// --- Litegraph setup (lazy — scripts + init deferred until CONFIG tab) ---
+let graph     = null;
+let canvas    = null;
+let _lgReady  = false;
 
-const defaults = [
-  ["oAIo/ollama",     [60,  60]],
-  ["oAIo/kokoro-tts", [60,  200]],
-  ["oAIo/rvc",        [300, 200]],
-  ["oAIo/open-webui", [540, 60]],
-  ["oAIo/f5-tts",     [60,  340]],
-  ["oAIo/comfyui",    [540, 200]],
-];
+function _loadScripts(urls, cb) {
+  if (!urls.length) { cb(); return; }
+  const s = document.createElement("script");
+  s.src    = urls[0];
+  s.onload  = () => _loadScripts(urls.slice(1), cb);
+  s.onerror = () => { console.warn("Failed to load", urls[0]); _loadScripts(urls.slice(1), cb); };
+  document.head.appendChild(s);
+}
 
-defaults.forEach(([type, pos]) => {
-  const node = LiteGraph.createNode(type);
-  if (node) { node.pos = pos; graph.add(node); }
-});
+function initLiteGraph() {
+  if (graph) return;
+  if (!_lgReady) {
+    const base = ["litegraph.js", "nodes/services.js", "nodes/capabilities.js"];
+    const ext  = window._pendingExtNodes || [];
+    _loadScripts([...base, ...ext], () => {
+      window._pendingExtNodes = [];
+      _lgReady = true;
+      initLiteGraph();
+    });
+    return;
+  }
+  try {
+    graph  = new LGraph();
+    canvas = new LGraphCanvas("#node-canvas", graph);
+    canvas.background_image = null;
+    canvas.render_shadows   = false;
+    canvas.show_info        = false;
 
-graph.start();
+    [
+      ["oAIo/ollama",     [60,  60]],
+      ["oAIo/kokoro-tts", [60,  200]],
+      ["oAIo/rvc",        [300, 200]],
+      ["oAIo/open-webui", [540, 60]],
+      ["oAIo/f5-tts",     [60,  340]],
+      ["oAIo/comfyui",    [540, 200]],
+    ].forEach(([type, pos]) => {
+      const node = LiteGraph.createNode(type);
+      if (node) { node.pos = pos; graph.add(node); }
+    });
+
+    graph.start();
+
+    // Wire canvas callbacks (must be inside initLiteGraph so canvas is non-null)
+    canvas.onNodeDblClick = node => {
+      if (node && node._svc) enterContainer(node);
+    };
+
+    canvas.onNodeSelected = node => {
+      if (!node) return;
+      selectedNode = node;
+      showConfigView("node");
+      document.getElementById("config-node-name").textContent  = node.title || node.type;
+      document.getElementById("config-node-group").textContent = node._svc?.group || "";
+      document.getElementById("config-vram-est").textContent   =
+        node._svc?.vramEst ? `~${node._svc.vramEst}GB VRAM est` : "";
+      loadNodeConfig(node);
+    };
+  } catch (e) {
+    console.error("LiteGraph init failed:", e);
+  }
+}
 
 // --- Timeline canvas ---
 const timelineCanvas = document.getElementById("timeline-canvas");
+
+// --- Tab switching ---
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    if (btn.dataset.tab === "advanced") loadAdvancedTab();
+    if (btn.dataset.tab === "config")   initLiteGraph();
+  });
+});
+
+// --- Section toggles (TELEMETRY / ACCOUNTING / TIMELINE) ---
+// Sections start hidden — inline style="display:none" in HTML handles initial state
+
+document.querySelectorAll(".sec-toggle").forEach(btn => {
+  btn.addEventListener("click", () => {
+    btn.classList.toggle("active");
+    const on  = btn.classList.contains("active");
+    const sec = btn.dataset.section;
+    if (sec === "telemetry") {
+      document.getElementById("telemetry-strip").style.display = on ? "" : "none";
+    }
+    if (sec === "accounting") {
+      document.getElementById("acct-strip").style.display = on ? "" : "none";
+    }
+    if (sec === "timeline") {
+      const card = document.getElementById("card-timeline");
+      card.style.display = on ? "" : "none";
+      if (on) {
+        // Layout must settle before canvas has real dimensions
+        requestAnimationFrame(() => {
+          if (timelineCanvas.offsetWidth > 0) {
+            Timeline.drawTimeline(timelineCanvas, null, activeViews, null);
+          }
+        });
+      }
+    }
+  });
+});
 
 // --- Gauges ---
 function setGauge(barId, labelId, used, total) {
@@ -44,7 +137,6 @@ function setGauge(barId, labelId, used, total) {
 // --- Timeline view toggles ---
 const activeViews = new Set(["vram", "ram", "gpu"]);
 
-// Pills that control multiple timeline rows
 const PILL_ROWS = {
   nvme: ["nvme_r", "nvme_w"],
   sata: ["sata_r", "sata_w"],
@@ -57,7 +149,6 @@ document.querySelectorAll(".view-pill").forEach(pill => {
     const allActive = rows.every(r => activeViews.has(r));
 
     if (allActive) {
-      // Only deactivate if it won't empty the set
       if (activeViews.size > rows.length) {
         rows.forEach(r => activeViews.delete(r));
         pill.classList.remove("active");
@@ -66,7 +157,9 @@ document.querySelectorAll(".view-pill").forEach(pill => {
       rows.forEach(r => activeViews.add(r));
       pill.classList.add("active");
     }
-    Timeline.drawTimeline(timelineCanvas, null, activeViews);
+    if (timelineCanvas.offsetWidth > 0) {
+      Timeline.drawTimeline(timelineCanvas, null, activeViews, null);
+    }
   });
 });
 
@@ -84,6 +177,7 @@ document.querySelectorAll(".grp-pill").forEach(pill => {
 });
 
 function applyGroupFilter() {
+  if (!graph) return;
   graph.getNodes().forEach(node => {
     const g   = node._svc?.group;
     const dim = activeGroup !== "all" && g !== activeGroup;
@@ -93,9 +187,9 @@ function applyGroupFilter() {
   graph.setDirtyCanvas(true, true);
 }
 
-// --- Dual mode system ---
-let activeModes = [];  // up to 2 mode IDs
-let modesData   = {};  // fetched from API
+// --- Mode system ---
+let activeModes = [];
+let modesData   = {};
 
 async function fetchModesData() {
   try {
@@ -108,6 +202,7 @@ function combinedVram() {
   return activeModes.reduce((s, id) => s + (modesData[id]?.vram_est_gb || 0), 0);
 }
 
+// Render active-mode tabs in topbar
 function renderModeTabs() {
   const el = document.getElementById("active-tabs");
   if (activeModes.length === 0) {
@@ -141,127 +236,163 @@ function renderModeTabs() {
   }
 }
 
-function updateModeButtons() {
-  document.querySelectorAll(".mode-btn").forEach(btn => {
-    const idx = activeModes.indexOf(btn.dataset.mode);
-    btn.classList.toggle("active",           idx === 0);
-    btn.classList.toggle("secondary-active", idx === 1);
+// Render mode-grid in LIVE tab
+function renderModeGrid() {
+  const grid = document.getElementById("mode-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  const modeOrder = ["converse", "create", "forge", "render_image", "render_video", "render_3d", "render_full"];
+  const keys = modeOrder.filter(k => modesData[k]).concat(
+    Object.keys(modesData).filter(k => !modeOrder.includes(k))
+  );
+  keys.forEach(id => {
+    const info = modesData[id];
+    const idx  = activeModes.indexOf(id);
+    const btn  = document.createElement("button");
+    btn.className = "mode-card-btn" +
+      (idx === 0 ? " primary" : idx === 1 ? " secondary" : "");
+    btn.dataset.mode = id;
+    btn.innerHTML =
+      `<span class="mcb-name">${info?.name || id.toUpperCase()}</span>` +
+      `<span class="mcb-vram">${info?.vram_budget_gb ?? info?.vram_est_gb ?? "?"}GB</span>`;
+    btn.addEventListener("click", () => onModeCardClick(id, info || {}));
+    grid.appendChild(btn);
   });
 }
 
-function deactivateMode(modeId) {
-  activeModes = activeModes.filter(m => m !== modeId);
-  renderModeTabs();
-  updateModeButtons();
-  if (selectedNode) loadModeAllocations(selectedNode);
-  fetch(`${OLLMO_API}/modes/${modeId}/deactivate`, { method: "POST" }).catch(() => {});
+// Mode confirm panel
+let _pendingModeId = null;
+
+async function onModeCardClick(modeId, info) {
+  // Already active → deactivate
+  if (activeModes.includes(modeId)) {
+    deactivateMode(modeId);
+    hideConfirm();
+    return;
+  }
+
+  _pendingModeId = modeId;
+
+  let projection = null;
+  try {
+    const r = await fetch(`${OLLMO_API}/modes/${modeId}/check`);
+    projection = await r.json();
+  } catch {}
+
+  const blocked   = !!projection?.blocked;
+  const projGb    = projection?.projected_gb?.toFixed(1) ?? "?";
+  const headroomGb = projection?.headroom_gb?.toFixed(1) ?? "?";
+
+  document.getElementById("mc-title").textContent =
+    (info.name || modeId).toUpperCase();
+
+  const statEl = document.getElementById("mc-stat");
+  statEl.className = "mode-confirm-stat" + (blocked ? " hot" : "");
+  statEl.textContent = projection
+    ? `~${projGb}GB → ${headroomGb}GB free`
+    : "—";
+
+  document.getElementById("mc-svcs").textContent =
+    (info.services || []).join(" · ") || "—";
+
+  const blockedEl = document.getElementById("mc-blocked");
+  blockedEl.classList.toggle("hidden", !blocked);
+  document.getElementById("mc-activate").disabled = blocked;
+
+  document.getElementById("mode-confirm").classList.remove("hidden");
 }
 
-document.querySelectorAll(".mode-btn").forEach(btn => {
-  btn.addEventListener("click", async () => {
-    const modeId = btn.dataset.mode;
+function hideConfirm() {
+  document.getElementById("mode-confirm").classList.add("hidden");
+  _pendingModeId = null;
+}
 
-    if (activeModes.includes(modeId)) {
-      deactivateMode(modeId);
-      return;
-    }
+document.getElementById("mc-cancel").addEventListener("click", hideConfirm);
 
-    // Pre-flight VRAM check
-    let projection = null;
-    try {
-      const chk = await fetch(`${OLLMO_API}/modes/${modeId}/check`);
-      projection = await chk.json();
-    } catch {}
+document.getElementById("mc-activate").addEventListener("click", async () => {
+  const modeId = _pendingModeId;
+  if (!modeId) return;
+  hideConfirm();
 
-    if (projection?.blocked) {
-      showAlert("critical",
-        `Cannot activate ${modeId.toUpperCase()}: ~${projection.projected_gb}GB projected exceeds VRAM limit.`
-      );
-      return;
-    }
+  if (activeModes.length >= 2) {
+    activeModes[1] = modeId;
+  } else {
+    activeModes.push(modeId);
+  }
 
-    if (activeModes.length >= 2) {
-      activeModes[1] = modeId;
-    } else {
-      activeModes.push(modeId);
-    }
+  renderModeTabs();
+  renderModeGrid();
 
-    renderModeTabs();
-    updateModeButtons();
-    await fetchModesData();
-    loadModeConfig(modeId);
-
+  try {
     const r    = await fetch(`${OLLMO_API}/modes/${modeId}/activate`, { method: "POST" });
     const data = await r.json();
     if (data.warning) {
       showAlert("warning",
-        `${modeId.toUpperCase()} active — ~${data.projection?.projected_gb}GB projected, approaching VRAM limit.`
+        `${modeId.toUpperCase()} active — ~${data.projection?.projected_gb}GB projected.`
       );
     }
-    poll();
-  });
+  } catch {}
+
+  await fetchModesData();
+  renderModeGrid();
+  loadModeConfig(modeId);
+  poll();
 });
 
-// --- Sub-graph navigation (Tier 3 capability nodes) ---
+function deactivateMode(modeId) {
+  activeModes = activeModes.filter(m => m !== modeId);
+  renderModeTabs();
+  renderModeGrid();
+  if (selectedNode) loadModeAllocations(selectedNode);
+  fetch(`${OLLMO_API}/modes/${modeId}/deactivate`, { method: "POST" }).catch(() => {});
+}
+
+// --- Sub-graph navigation ---
 const subGraphCache = {};
 const navStack      = [];
 
 async function enterContainer(node) {
+  if (!canvas) return;
   const svcName = node._svc?.name;
   if (!svcName) return;
-
-  // Cache or build the sub-graph
   if (!subGraphCache[svcName]) {
     subGraphCache[svcName] = await CapabilityNodes.buildSubGraph(svcName);
   }
-
   navStack.push({ graph: canvas.graph, title: "ALL SERVICES" });
-
   canvas.graph.stop();
   canvas.graph = subGraphCache[svcName];
   canvas.graph.start();
   canvas.draw(true, true);
-
-  // Show breadcrumb, hide group filter
   document.getElementById("group-filter").classList.add("hidden");
   document.getElementById("breadcrumb").classList.remove("hidden");
-  document.getElementById("crumb-path").textContent =
-    node.title || svcName.toUpperCase();
+  document.getElementById("crumb-path").textContent = node.title || svcName.toUpperCase();
 }
 
 function exitContainer() {
-  if (navStack.length === 0) return;
+  if (!canvas || navStack.length === 0) return;
   const prev = navStack.pop();
   canvas.graph.stop();
   canvas.graph = prev.graph;
   canvas.graph.start();
   canvas.draw(true, true);
-
   if (navStack.length === 0) {
     document.getElementById("group-filter").classList.remove("hidden");
     document.getElementById("breadcrumb").classList.add("hidden");
   } else {
-    document.getElementById("crumb-path").textContent =
-      navStack[navStack.length - 1].title;
+    document.getElementById("crumb-path").textContent = navStack[navStack.length - 1].title;
   }
 }
 
 document.getElementById("crumb-back").addEventListener("click", exitContainer);
 
-// Double-click a container node → enter its sub-graph
-canvas.onNodeDblClick = node => {
-  if (node && node._svc) enterContainer(node);
-};
-
 // --- Config panel scope switching ---
 function showConfigView(view) {
-  // view = "node" | "mode" | "paths"
   document.getElementById("config-node").classList.toggle("hidden",  view !== "node");
   document.getElementById("config-mode").classList.toggle("hidden",  view !== "mode");
   document.getElementById("config-paths").classList.toggle("hidden", view !== "paths");
 }
 
-// --- Load persisted configs from server ---
+// --- Load persisted node configs ---
 async function initConfigs() {
   try {
     const r = await fetch(`${OLLMO_API}/config/nodes`);
@@ -272,9 +403,9 @@ async function initConfigs() {
 }
 initConfigs();
 
-// --- Per-node config (persisted to server) ---
+// --- Per-node config ---
 let selectedNode = null;
-let nodeConfigs = {};
+let nodeConfigs  = {};
 
 ["cfg-memory", "cfg-priority", "cfg-bus", "cfg-limit", "cfg-boot"].forEach(id => {
   const el = document.getElementById(id);
@@ -325,26 +456,18 @@ async function loadModeAllocations(node) {
   const svcName = node._svc?.name;
   const wrap = document.getElementById("mode-allocs");
   const body = document.getElementById("mode-allocs-body");
-
-  if (!svcName || activeModes.length === 0) {
-    wrap.classList.add("hidden");
-    return;
-  }
-
+  if (!svcName || activeModes.length === 0) { wrap.classList.add("hidden"); return; }
   wrap.classList.remove("hidden");
   body.innerHTML = "";
-
   for (const modeId of activeModes) {
     const modeInfo = modesData[modeId] || {};
-    let allocs = {};
-    let budget = modeInfo.vram_est_gb || 20;
+    let allocs = {}, budget = modeInfo.vram_est_gb || 20;
     try {
       const r = await fetch(`${OLLMO_API}/modes/${modeId}/allocations`);
       const d = await r.json();
       allocs = d.allocations || {};
       budget = d.vram_budget_gb || budget;
     } catch {}
-
     const current = allocs[svcName] ?? 0;
     const row = document.createElement("div");
     row.className = "config-field";
@@ -358,14 +481,9 @@ async function loadModeAllocations(node) {
        </div>
        <div class="config-sub alloc-projection" id="alloc-proj-${modeId}"></div>`;
     body.appendChild(row);
-
     const slider = row.querySelector(".alloc-slider");
     const label  = row.querySelector(".alloc-val");
-    const proj   = row.querySelector(".alloc-projection");
-
-    slider.addEventListener("input", () => {
-      label.textContent = slider.value + " GB";
-    });
+    slider.addEventListener("input", () => { label.textContent = slider.value + " GB"; });
     slider.addEventListener("change", async () => {
       const r = await fetch(
         `${OLLMO_API}/modes/${modeId}/allocations/${encodeURIComponent(svcName)}`,
@@ -373,6 +491,7 @@ async function loadModeAllocations(node) {
           body: JSON.stringify({ gb: parseFloat(slider.value) }) }
       );
       const data = await r.json();
+      const proj = row.querySelector(".alloc-projection");
       proj.textContent = data.projected_gb != null
         ? `Mode total: ~${data.projected_gb} / ${data.budget_gb} GB`
         : "";
@@ -437,11 +556,8 @@ function updateMemorySub(saved) {
 }
 
 const PRIORITY_DESC = [
-  "", // 0 unused
-  "Protected — last to close",
-  "High — yields only to protected",
-  "Normal — balanced scheduling",
-  "Low — yields to higher priority",
+  "", "Protected — last to close", "High — yields only to protected",
+  "Normal — balanced scheduling", "Low — yields to higher priority",
   "Hot swap — first to park",
 ];
 
@@ -452,17 +568,11 @@ function updatePrioritySub() {
   );
 }
 
-const BUS_DESC = {
-  nvme:  "Est. load: ~1.5 s",
-  sata:  "Est. load: ~13 s",
-  ram:   "Est. load: ~0.1 s",
-};
+const BUS_DESC = { nvme: "Est. load: ~1.5 s", sata: "Est. load: ~13 s", ram: "Est. load: ~0.1 s" };
 
 function updateBusSub() {
   const val = document.getElementById("cfg-bus").value;
-  setSubHtml("sub-bus",
-    `<span class="sub-desc">${BUS_DESC[val] || ""}</span>`
-  );
+  setSubHtml("sub-bus", `<span class="sub-desc">${BUS_DESC[val] || ""}</span>`);
 }
 
 function updateLimitSub(saved) {
@@ -504,31 +614,18 @@ function updateBootSub(saved) {
   }
 }
 
-canvas.onNodeSelected = node => {
-  if (!node) return;
-  selectedNode = node;
-  showConfigView("node");
-  document.getElementById("config-node-name").textContent  = node.title || node.type;
-  document.getElementById("config-node-group").textContent = node._svc?.group || "";
-  document.getElementById("config-vram-est").textContent   =
-    node._svc?.vramEst ? `~${node._svc.vramEst}GB VRAM est` : "";
-  loadNodeConfig(node);
-};
-
-// --- Mode-level config (total system allocation) ---
-let modeConfigs = {};
+// --- Mode-level config ---
+let modeConfigs  = {};
 let selectedModeId = null;
 
 function loadModeConfig(modeId) {
   selectedModeId = modeId;
   const cfg  = modeConfigs[modeId] || {};
   const info = modesData[modeId]   || {};
-
   document.getElementById("config-node-name").textContent  = (info.name || modeId).toUpperCase() + " MODE";
   document.getElementById("config-node-group").textContent = "system allocation";
   document.getElementById("config-vram-est").textContent   =
     info.vram_est_gb ? `~${info.vram_est_gb}GB est` : "";
-
   const vramVal = cfg.vramBudget ?? info.vram_est_gb ?? 10;
   const ramVal  = cfg.ramBudget  ?? 32;
   document.getElementById("mode-vram").value     = vramVal;
@@ -537,10 +634,7 @@ function loadModeConfig(modeId) {
   document.getElementById("mode-ram-val").textContent  = ramVal + " GB";
   document.getElementById("mode-priority").value = cfg.priority || "primary";
   document.getElementById("mode-limit").value    = cfg.limit    || "soft";
-
-  const svcs = info.services || [];
-  document.getElementById("mode-services").textContent = svcs.join(", ") || "—";
-
+  document.getElementById("mode-services").textContent = (info.services || []).join(", ") || "—";
   updateModeLimitSub(cfg);
   showConfigView("mode");
 }
@@ -580,7 +674,6 @@ function updateModeLimitSub(saved) {
   }
 }
 
-// Mode config slider live update
 document.getElementById("mode-vram").addEventListener("input", e => {
   document.getElementById("mode-vram-val").textContent = e.target.value + " GB";
   saveModeConfig();
@@ -588,8 +681,7 @@ document.getElementById("mode-vram").addEventListener("input", e => {
 document.getElementById("mode-vram").addEventListener("change", async e => {
   if (!selectedModeId) return;
   await fetch(`${OLLMO_API}/modes/${selectedModeId}/budget`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ gb: parseFloat(e.target.value) }),
   });
 });
@@ -603,13 +695,12 @@ document.getElementById("mode-limit").addEventListener("change", () => {
   updateModeLimitSub(modeConfigs[selectedModeId]);
 });
 
-// --- Paths & Routing panel ---
+// --- Paths & Routing panel (config-panel, hidden in Tab 2) ---
 async function loadPathsPanel() {
   showConfigView("paths");
   document.getElementById("config-node-name").textContent  = "Storage Paths";
   document.getElementById("config-node-group").textContent = "symlinks + routing";
   document.getElementById("config-vram-est").textContent   = "";
-
   try {
     const [pathsR, routingR] = await Promise.all([
       fetch(`${OLLMO_API}/config/paths`),
@@ -618,60 +709,58 @@ async function loadPathsPanel() {
     const paths   = await pathsR.json();
     const routing = await routingR.json();
     renderPathsList(paths);
-    document.getElementById("route-tts-url").value    = routing.tts_url    || "";
-    document.getElementById("route-imggen-url").value = routing.image_gen_url || "";
-    document.getElementById("route-ollama-url").value = routing.ollama_url  || "";
-    document.getElementById("route-stt-url").value    = routing.stt_url     || "";
+    document.getElementById("route-tts-url").value    = routing.tts_url        || "";
+    document.getElementById("route-imggen-url").value = routing.image_gen_url  || "";
+    document.getElementById("route-ollama-url").value = routing.ollama_url     || "";
+    document.getElementById("route-stt-url").value    = routing.stt_url        || "";
   } catch (e) {
     console.warn("loadPathsPanel error:", e);
   }
 }
 
-function renderPathsList(paths) {
-  const list = document.getElementById("paths-list");
-  list.innerHTML = "";
-
+// Shared path renderer — used by config panel (Tab 2) and Advanced tab
+function renderPathsInto(paths, listEl, onRefresh) {
+  listEl.innerHTML = "";
   paths.forEach(p => {
     const entry = document.createElement("div");
     entry.className = "path-entry";
     entry.dataset.name = p.name;
-
     const statusDot  = `<span class="path-status ${p.exists ? 'ok' : 'missing'}" title="${p.exists ? 'target exists' : 'target missing'}"></span>`;
     const tierBadge  = `<span class="tier-badge ${p.tier}">${p.tier}</span>`;
     const ctrs       = (p.containers || []).map(c => `<span class="ctr-badge">${c}</span>`).join("");
     const targetText = p.target || '—';
-
     entry.innerHTML =
       `<div class="path-row-main">` +
         statusDot +
         `<span class="path-entry-label">${p.label}</span>` +
         tierBadge +
-        `<span class="path-entry-target" title="${targetText}">${targetText}</span>` +
+        `<span class="path-entry-target" title="${p.target || ''}">${targetText}</span>` +
         `<button class="path-edit-btn" data-name="${p.name}">EDIT</button>` +
         `<button class="path-del-btn" data-name="${p.name}" title="Remove">✕</button>` +
       `</div>` +
       (ctrs ? `<div class="path-ctrs">${ctrs}</div>` : "");
-
     entry.querySelector(".path-edit-btn").addEventListener("click", () =>
-      startPathEdit(entry, p.name, p.target || p.default_target)
+      startPathEdit(entry, p.name, p.target || p.default_target, onRefresh)
     );
     entry.querySelector(".path-del-btn").addEventListener("click", async () => {
       if (!confirm(`Remove path "${p.label}"?`)) return;
       await fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(p.name)}`, { method: "DELETE" });
-      loadPathsPanel();
+      onRefresh();
     });
-    list.appendChild(entry);
+    listEl.appendChild(entry);
   });
-
-  // Add path button
   const addBtn = document.createElement("button");
   addBtn.className = "path-add-btn mode-btn";
   addBtn.textContent = "+ Add Path";
-  addBtn.addEventListener("click", () => showAddPathForm(list, addBtn));
-  list.appendChild(addBtn);
+  addBtn.addEventListener("click", () => showAddPathForm(listEl, addBtn, onRefresh));
+  listEl.appendChild(addBtn);
 }
 
-function showAddPathForm(list, addBtn) {
+function renderPathsList(paths) {
+  renderPathsInto(paths, document.getElementById("paths-list"), loadPathsPanel);
+}
+
+function showAddPathForm(list, addBtn, onRefresh) {
   addBtn.remove();
   const form = document.createElement("div");
   form.className = "path-add-form";
@@ -684,59 +773,51 @@ function showAddPathForm(list, addBtn) {
       `<button class="mode-btn" id="add-cancel">CANCEL</button>` +
     `</div>`;
   list.appendChild(form);
-
-  document.getElementById("add-cancel").addEventListener("click", loadPathsPanel);
+  document.getElementById("add-cancel").addEventListener("click", onRefresh);
   document.getElementById("add-confirm").addEventListener("click", async () => {
     const name   = document.getElementById("add-name").value.trim();
     const label  = document.getElementById("add-label").value.trim();
     const target = document.getElementById("add-target").value.trim();
     if (!name || !target) return;
     await fetch(`${OLLMO_API}/config/paths`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, label: label || name, target }),
     });
-    loadPathsPanel();
+    onRefresh();
   });
 }
 
-function startPathEdit(entry, name, currentTarget) {
+function startPathEdit(entry, name, currentTarget, onRefresh) {
   const targetEl = entry.querySelector(".path-entry-target");
   const editBtn  = entry.querySelector(".path-edit-btn");
-
   const input = document.createElement("input");
   input.className = "path-edit-input";
   input.value = currentTarget || "";
-
   targetEl.replaceWith(input);
   editBtn.textContent = "SAVE";
   input.focus();
-
   const save = async () => {
     const newTarget = input.value.trim();
-    if (!newTarget) { loadPathsPanel(); return; }
+    if (!newTarget) { onRefresh(); return; }
     try {
       await fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(name)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: newTarget }),
       });
-    } catch (e) {
-      console.warn("repoint error:", e);
-    }
-    loadPathsPanel();
+    } catch (e) { console.warn("repoint error:", e); }
+    onRefresh();
   };
-
   editBtn.onclick = save;
   input.addEventListener("keydown", e => {
     if (e.key === "Enter") save();
-    if (e.key === "Escape") loadPathsPanel();
+    if (e.key === "Escape") onRefresh();
   });
 }
 
 document.getElementById("config-paths-btn").addEventListener("click", loadPathsPanel);
 
 document.getElementById("save-routing-btn").addEventListener("click", async () => {
+  const btn  = document.getElementById("save-routing-btn");
   const body = {
     tts_url:       document.getElementById("route-tts-url").value.trim(),
     image_gen_url: document.getElementById("route-imggen-url").value.trim(),
@@ -745,13 +826,223 @@ document.getElementById("save-routing-btn").addEventListener("click", async () =
   };
   try {
     await fetch(`${OLLMO_API}/config/routing`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    btn.textContent = "SAVED";
   } catch (e) {
     console.warn("save routing error:", e);
+    btn.textContent = "ERROR";
   }
+  setTimeout(() => { btn.textContent = "APPLY ROUTING"; }, 2000);
+});
+
+// --- Live tab card renderers ---
+
+// Accounting strip (topbar #acct-strip)
+function renderAccounting(acct) {
+  if (!acct) return;
+  const ids = {
+    "acct-vram-ext":  (acct.vram_external?.toFixed(1)  ?? "0.0") + " GB",
+    "acct-vram-free": (acct.vram_headroom?.toFixed(1)  ?? "?")   + " GB",
+    "acct-ram-ext":   (acct.ram_external?.toFixed(1)   ?? "0.0") + " GB",
+    "acct-ram-free":  (acct.ram_headroom?.toFixed(1)   ?? "?")   + " GB",
+  };
+  for (const [id, val] of Object.entries(ids)) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+}
+
+// Kill log card
+function renderKillLog(events) {
+  const el = document.getElementById("killlog-list");
+  if (!el) return;
+  if (!events || events.length === 0) {
+    el.innerHTML = '<span class="dim">No events</span>';
+    return;
+  }
+  const icons = { kill: "✕", restore: "↺", crash: "!" };
+  const now = Date.now() / 1000;
+  el.innerHTML = [...events].reverse().slice(0, 10).map(ev => {
+    const ago = formatAgo(now - (ev.ts || 0));
+    return `<div class="ev-row ev-${ev.event}">
+      <span class="ev-icon">${icons[ev.event] || "?"}</span>
+      <span class="ev-svc">${ev.service || ev.container || "?"}</span>
+      <span class="ev-type">${ev.event}</span>
+      <span class="ev-vram">${ev.vram_used != null ? ev.vram_used.toFixed(1) + 'GB' : '?'}</span>
+      <span class="ev-ago">${ago}</span>
+    </div>`;
+  }).join("");
+}
+
+function formatAgo(secs) {
+  if (secs < 60) return `${Math.round(secs)}s`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m`;
+  return `${Math.round(secs / 3600)}h`;
+}
+
+// Services card
+let _svcsCfg = {};
+
+async function fetchServicesCfg() {
+  try {
+    const r = await fetch(`${OLLMO_API}/config/services`);
+    _svcsCfg = await r.json();
+  } catch {}
+}
+
+function renderServices(services) {
+  const el = document.getElementById("services-list");
+  if (!el) return;
+  if (!services || services.length === 0) {
+    el.innerHTML = '<span class="dim">No services</span>';
+    return;
+  }
+  el.innerHTML = services.map(svc => {
+    const cfg     = _svcsCfg[svc.name] || {};
+    const vram    = cfg.vram_est_gb || 0;
+    const st      = svc.status || "unknown";
+    const dot     = st === "running" ? "ok" : (st === "exited" || st === "not_found") ? "err" : "warn";
+    const running = st === "running";
+    const restore = cfg.auto_restore !== false;
+    return `<div class="svc-row">
+      <span class="svc-dot ${dot}"></span>
+      <span class="svc-name">${svc.name}</span>
+      <span class="svc-status">${st}</span>
+      <span class="svc-vram">${vram > 0 ? vram + 'GB' : '—'}</span>
+      <button class="svc-btn" title="Start" ${running ? 'disabled' : ''}
+        onclick="svcAction('${svc.name}','start')">▶</button>
+      <button class="svc-btn" title="Stop" ${!running ? 'disabled' : ''}
+        onclick="svcAction('${svc.name}','stop')">■</button>
+      <label class="svc-restore-toggle" title="${restore ? 'Auto-restore on' : 'Auto-restore off'}">
+        <input type="checkbox" ${restore ? 'checked' : ''}
+          onchange="svcToggleRestore('${svc.name}', this.checked)">
+        <span class="svc-restore-track"></span>
+      </label>
+    </div>`;
+  }).join("");
+}
+
+async function svcAction(name, action) {
+  try {
+    await fetch(`${OLLMO_API}/services/${encodeURIComponent(name)}/${action}`, { method: "POST" });
+    setTimeout(poll, 1500);
+  } catch {}
+}
+
+async function svcToggleRestore(name, enabled) {
+  try {
+    await fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ auto_restore: enabled }),
+    });
+    if (_svcsCfg[name]) _svcsCfg[name].auto_restore = enabled;
+  } catch {}
+}
+
+// RAM tier card
+let _pathsCache = [];
+let _lastRamTier = null;
+
+async function fetchPathsForRamTier() {
+  try {
+    const r = await fetch(`${OLLMO_API}/config/paths`);
+    _pathsCache = await r.json();
+    renderRamTier(_lastRamTier);
+  } catch {}
+}
+
+function renderRamTier(ramTier) {
+  _lastRamTier = ramTier;
+  const el = document.getElementById("ramtier-content");
+  if (!el) return;
+
+  let headerHTML;
+  if (ramTier && Object.keys(ramTier).length > 0 && ramTier.pools) {
+    const poolCount = Object.keys(ramTier.pools).length;
+    headerHTML = `<div class="acct-stats" style="margin-bottom:8px">
+      <span>${poolCount} pool${poolCount !== 1 ? 's' : ''} active</span>
+      <span>${ramTier.used_gb?.toFixed(1) ?? 0} / ${ramTier.ceiling_gb ?? '?'} GB</span>
+    </div>`;
+  } else {
+    headerHTML = `<div class="dim" style="margin-bottom:8px; font-size:10px">0 pools active</div>`;
+  }
+
+  const pathRows = _pathsCache.map(p => {
+    const isRam = p.tier === "ram";
+    const tierLabel = isRam ? "RAM → DEF" : (p.tier?.toUpperCase() || "DEF") + " → RAM";
+    return `<div class="rt-row">
+      <span class="rt-name">${p.label || p.name}</span>
+      <button class="rt-btn${isRam ? ' active' : ''}"
+        onclick="toggleRamTier('${p.name}',${isRam})">${tierLabel}</button>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = headerHTML + pathRows;
+}
+
+async function toggleRamTier(name, isRam) {
+  try {
+    await fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(name)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: isRam ? "default" : "ram" }),
+    });
+    fetchPathsForRamTier();
+  } catch {}
+}
+
+// --- Advanced tab ---
+async function loadAdvancedTab() {
+  try {
+    const [pathsR, routingR] = await Promise.all([
+      fetch(`${OLLMO_API}/config/paths`),
+      fetch(`${OLLMO_API}/config/routing`),
+    ]);
+    const paths   = await pathsR.json();
+    const routing = await routingR.json();
+    renderAdvPaths(paths);
+    document.getElementById("adv-route-tts-url").value    = routing.tts_url       || "";
+    document.getElementById("adv-route-imggen-url").value = routing.image_gen_url || "";
+    document.getElementById("adv-route-ollama-url").value = routing.ollama_url    || "";
+    document.getElementById("adv-route-stt-url").value    = routing.stt_url       || "";
+  } catch (e) {
+    console.warn("loadAdvancedTab error:", e);
+  }
+}
+
+async function reloadAdvPaths() {
+  try {
+    const r = await fetch(`${OLLMO_API}/config/paths`);
+    renderAdvPaths(await r.json());
+  } catch {}
+}
+
+function renderAdvPaths(paths) {
+  const list = document.getElementById("adv-paths-list");
+  if (!list) return;
+  renderPathsInto(paths, list, reloadAdvPaths);
+}
+
+document.getElementById("adv-save-routing-btn").addEventListener("click", async () => {
+  const btn  = document.getElementById("adv-save-routing-btn");
+  const body = {
+    tts_url:       document.getElementById("adv-route-tts-url").value.trim(),
+    image_gen_url: document.getElementById("adv-route-imggen-url").value.trim(),
+    ollama_url:    document.getElementById("adv-route-ollama-url").value.trim(),
+    stt_url:       document.getElementById("adv-route-stt-url").value.trim(),
+  };
+  try {
+    await fetch(`${OLLMO_API}/config/routing`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    btn.textContent = "SAVED";
+  } catch {
+    btn.textContent = "ERROR";
+  }
+  setTimeout(() => { btn.textContent = "APPLY ROUTING"; }, 2000);
 });
 
 // --- Alert banner ---
@@ -768,35 +1059,63 @@ function showAlert(level, message) {
 
 function syncAlerts(alerts) {
   if (!alerts || alerts.length === 0) return;
-  // Only surface the highest-severity live alert
   const top = alerts.find(a => a.level === "critical") || alerts[0];
   showAlert(top.level, top.message);
 }
 
-// --- Status rendering ---
+// --- Status update (WS + poll) ---
 function applyStatusUpdate(d) {
-  setGauge("vram-bar", "vram-label", d.vram?.used_gb || 0, d.vram?.total_gb || 20);
-  setGauge("ram-bar",  "ram-label",  d.ram?.used_gb  || 0, d.ram?.total_gb  || 62);
+  try {
+    setGauge("vram-bar", "vram-label", d.vram?.used_gb || 0, d.vram?.total_gb || 20);
+    setGauge("ram-bar",  "ram-label",  d.ram?.used_gb  || 0, d.ram?.total_gb  || 62);
 
-  const gpuPct = (d.gpu?.gpu_use_percent || 0) / 100;
-  const gpuBar = document.getElementById("gpu-bar");
-  gpuBar.style.width = (gpuPct * 100) + "%";
-  gpuBar.className = "fill" + (gpuPct > 0.85 ? " hot" : gpuPct > 0.6 ? " warn" : "");
-  document.getElementById("gpu-label").textContent = `${d.gpu?.gpu_use_percent || 0}%`;
+    const gpuPct = (d.gpu?.gpu_use_percent || 0) / 100;
+    const gpuBar = document.getElementById("gpu-bar");
+    if (gpuBar) {
+      gpuBar.style.width = (gpuPct * 100) + "%";
+      gpuBar.className = "fill" + (gpuPct > 0.85 ? " hot" : gpuPct > 0.6 ? " warn" : "");
+    }
+    const gpuLabel = document.getElementById("gpu-label");
+    if (gpuLabel) gpuLabel.textContent = `${d.gpu?.gpu_use_percent || 0}%`;
 
-  if (window._lastStorageStats) d.storage = window._lastStorageStats;
-  syncAlerts(d.alerts);
-  Timeline.drawTimeline(timelineCanvas, d, activeViews);
+    if (window._lastStorageStats) d.storage = window._lastStorageStats;
+    syncAlerts(d.alerts);
+    // Only draw if timeline canvas has been laid out (offsetWidth > 0)
+    if (timelineCanvas && timelineCanvas.offsetWidth > 0 && timelineCanvas.offsetHeight > 0) {
+      Timeline.drawTimeline(timelineCanvas, d, activeViews);
+    }
+
+    // Live tab cards
+    if (d.accounting)             renderAccounting(d.accounting);
+    if (d.kill_log !== undefined) renderKillLog(d.kill_log);
+    if (d.services)               renderServices(d.services);
+    if (d.ram_tier !== undefined) renderRamTier(d.ram_tier);
+
+    // Sync active modes from WS
+    if (d.active_modes) {
+      activeModes = d.active_modes;
+      renderModeTabs();
+      renderModeGrid();
+    }
+  } catch (e) {
+    console.error("applyStatusUpdate error:", e);
+  }
 }
 
-// --- WebSocket status stream ---
+// --- WebSocket ---
 function connectStatusWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onmessage = (event) => {
-    try { applyStatusUpdate(JSON.parse(event.data)); } catch (e) {}
+  ws.onopen  = () => {};
+  ws.onmessage = event => {
+    try {
+      const d = JSON.parse(event.data);
+      applyStatusUpdate(d);
+    } catch(e) { /* ignore parse errors */ }
   };
-  ws.onclose = () => { setTimeout(connectStatusWS, 3000); };
+  ws.onclose = () => {
+    setTimeout(connectStatusWS, 3000);
+  };
   ws.onerror = () => { ws.close(); };
 }
 
@@ -807,7 +1126,6 @@ async function pollStorage() {
   } catch {}
 }
 
-// --- Poll system status (manual refresh) ---
 async function poll() {
   try {
     const r = await fetch(`${OLLMO_API}/system/status`);
@@ -818,17 +1136,14 @@ async function poll() {
   }
 }
 
-// --- Save template ---
+// --- Templates ---
 document.getElementById("save-template").addEventListener("click", async () => {
   const name = prompt("Template name:");
   if (!name) return;
-  await fetch(`${OLLMO_API}/templates/save?name=${encodeURIComponent(name)}`, {
-    method: "POST"
-  });
+  await fetch(`${OLLMO_API}/templates/save?name=${encodeURIComponent(name)}`, { method: "POST" });
   loadTemplates();
 });
 
-// --- Load templates ---
 async function loadTemplates() {
   try {
     const r    = await fetch(`${OLLMO_API}/templates`);
@@ -836,10 +1151,10 @@ async function loadTemplates() {
     const el   = document.getElementById("template-list");
     el.innerHTML = "";
     list.forEach(name => {
-      const btn       = document.createElement("button");
-      btn.className   = "mode-btn";
+      const btn     = document.createElement("button");
+      btn.className = "mode-btn";
       btn.textContent = name;
-      btn.onclick     = () =>
+      btn.onclick   = () =>
         fetch(`${OLLMO_API}/templates/${encodeURIComponent(name)}/load`, { method: "POST" })
           .then(poll);
       el.appendChild(btn);
@@ -848,8 +1163,56 @@ async function loadTemplates() {
 }
 
 // --- Init ---
-fetchModesData();
+fetchModesData().then(renderModeGrid);
+fetchServicesCfg();
+fetchPathsForRamTier();
 loadTemplates();
 connectStatusWS();
 setInterval(pollStorage, 30000);
 pollStorage();
+
+// Immediate HTTP poll so gauges show values before first WS tick
+poll();
+
+// Timeline drag-to-resize handle
+(function () {
+  const container = document.querySelector('.tl-container');
+  const handle    = document.getElementById('tl-drag-handle');
+  if (!container || !handle) return;
+
+  // Initial draw once layout is ready
+  requestAnimationFrame(() => {
+    if (timelineCanvas.offsetWidth > 0)
+      Timeline.drawTimeline(timelineCanvas, null, activeViews);
+  });
+
+  let startY = 0, startH = 0;
+
+  handle.addEventListener('mousedown', e => {
+    startY = e.clientY;
+    startH = container.offsetHeight;
+    handle.classList.add('dragging');
+    e.preventDefault();
+
+    function onMove(e) {
+      const newH = Math.max(60, Math.min(800, startH + (e.clientY - startY)));
+      container.style.height = newH + 'px';
+      Timeline.drawTimeline(timelineCanvas, null, activeViews);
+    }
+
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+})();
+
+// Redraw canvas on browser resize
+window.addEventListener('resize', () => {
+  if (timelineCanvas.offsetWidth > 0)
+    Timeline.drawTimeline(timelineCanvas, null, activeViews);
+});

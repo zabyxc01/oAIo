@@ -29,18 +29,10 @@
       document.head.appendChild(link);
     }
 
-    // Inject JS node files (synchronous eval order preserved via await)
+    // Queue node files for loading after LiteGraph is ready (lazy via initLiteGraph)
     for (const jsFile of fe.nodes || []) {
-      await new Promise((resolve, reject) => {
-        const script  = document.createElement("script");
-        script.src    = `${base}/${jsFile}`;
-        script.onload  = resolve;
-        script.onerror = (e) => {
-          console.warn(`[oAIo] Extension ${ext.name}: failed to load ${jsFile}`, e);
-          resolve(); // non-fatal
-        };
-        document.head.appendChild(script);
-      });
+      window._pendingExtNodes = window._pendingExtNodes || [];
+      window._pendingExtNodes.push(`${base}/${jsFile}`);
     }
 
     // Inject generic JS panels/helpers

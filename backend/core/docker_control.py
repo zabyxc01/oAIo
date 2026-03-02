@@ -9,16 +9,7 @@ client = docker.from_env()
 def get_status(container_name: str) -> dict:
     try:
         c = client.containers.get(container_name)
-        stats = c.stats(stream=False)
-        mem = stats["memory_stats"]
-        used = mem.get("usage", 0)
-        limit = mem.get("limit", 1)
-        return {
-            "name": container_name,
-            "status": c.status,
-            "ram_used_gb": round(used / 1e9, 2),
-            "ram_limit_gb": round(limit / 1e9, 2)
-        }
+        return {"name": container_name, "status": c.status}
     except docker.errors.NotFound:
         return {"name": container_name, "status": "not_found"}
     except Exception as e:
@@ -34,10 +25,10 @@ def start(container_name: str) -> dict:
         return {"name": container_name, "action": "start", "ok": False, "error": str(e)}
 
 
-def stop(container_name: str) -> dict:
+def stop(container_name: str, timeout: int = 3) -> dict:
     try:
         c = client.containers.get(container_name)
-        c.stop()
+        c.stop(timeout=timeout)
         return {"name": container_name, "action": "stopped", "ok": True}
     except Exception as e:
         return {"name": container_name, "action": "stop", "ok": False, "error": str(e)}

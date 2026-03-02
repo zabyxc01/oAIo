@@ -33,10 +33,21 @@ active_modes: set[str] = set()
 kill_log: deque = deque(maxlen=50)
 
 # Containers killed or crashed: {container_name: {svc_name, priority, killed_at, reason}}
+# reason "manual" = user-stopped; never auto-restored
 _killed_services: dict = {}
 
 # Last known container status for crash detection: {container_name: str}
 _prev_status: dict = {}
+
+
+def register_manual_stop(container_name: str, svc_name: str, priority: int = 3):
+    """Call this when a user manually stops a container so crash detection ignores it."""
+    _killed_services[container_name] = {
+        "svc_name":  svc_name,
+        "priority":  priority,
+        "killed_at": time.time(),
+        "reason":    "manual",
+    }
 
 
 async def enforcement_loop(get_services_fn, get_docker_fn):
@@ -96,6 +107,13 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                 ]
                 for ctr in to_restore:
                     info = _killed_services.pop(ctr)
+                    if info.get("reason") == "manual":
+                        log.info("Skipping restore of %s (manual stop)", ctr)
+                        continue
+                    svc_cfg = services.get(info["svc_name"], {})
+                    if not svc_cfg.get("auto_restore", True):
+                        log.info("Skipping restore of %s (auto_restore=false)", ctr)
+                        continue
                     try:
                         client.containers.get(ctr).start()
                         log.info("Restored %s (was %s)", ctr, info.get("reason", "oom"))

@@ -5,6 +5,7 @@ Port: 9000
 import json
 import os
 import asyncio
+import threading
 import psutil
 import httpx
 import docker as docker_sdk
@@ -13,6 +14,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
+
+class _NoCacheStatic(StaticFiles):
+    """StaticFiles that disables browser caching — keeps frontend changes instant."""
+    async def get_response(self, path: str, scope):
+        resp = await super().get_response(path, scope)
+        if isinstance(resp, FileResponse):
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return resp
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,7 +31,7 @@ from core.vram import get_vram_usage, get_gpu_utilization
 from core.docker_control import get_status, start, stop, get_logs, all_status
 from core.paths import get_all_paths, repoint, get_storage_stats
 from core.resources import projected_vram, check_alerts, get_system_accounting
-from core.enforcer import enforcement_loop, active_modes as _active_modes, kill_log as _kill_log
+from core.enforcer import enforcement_loop, active_modes as _active_modes, kill_log as _kill_log, register_manual_stop
 from core import ram_tier
 from core.extensions import load_all as _load_extensions, list_all as _list_extensions, \
     set_enabled as _ext_set_enabled, EXTENSIONS_DIR
@@ -139,7 +149,11 @@ def stop_service(name: str):
     services = _services_cfg()
     if name not in services:
         return {"error": f"Unknown service: {name}"}
-    return stop(services[name]["container"])
+    svc = services[name]
+    ctr = svc["container"]
+    register_manual_stop(ctr, name, svc.get("priority", 3))
+    threading.Thread(target=stop, args=(ctr,), daemon=True).start()
+    return {"name": ctr, "action": "stopping", "ok": True}
 
 
 @app.get("/services/{name}/status")
@@ -532,6 +546,21 @@ def config_services_add(body: dict):
     return cfg["services"][name]
 
 
+@app.patch("/config/services/{name}")
+def config_services_patch(name: str, body: dict):
+    cfg = json.loads(SERVICES_CFG_FILE.read_text())
+    if name not in cfg["services"]:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Service '{name}' not found")
+    ALLOWED = {"priority", "limit_mode", "vram_est_gb", "ram_est_gb", "auto_restore",
+               "description", "group", "boot_with_system"}
+    for k, v in body.items():
+        if k in ALLOWED:
+            cfg["services"][name][k] = v
+    SERVICES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    return cfg["services"][name]
+
+
 @app.get("/enforcement/status")
 def enforcement_status():
     """Current enforcement state — thresholds, live VRAM, what would be killed next."""
@@ -621,12 +650,12 @@ def extensions_disable(name: str):
 
 # ── Serve extension assets — before main frontend catch-all ───────────────────
 if EXTENSIONS_DIR.exists():
-    app.mount("/ext", StaticFiles(directory=str(EXTENSIONS_DIR)), name="extensions")
+    app.mount("/ext", _NoCacheStatic(directory=str(EXTENSIONS_DIR)), name="extensions")
 
 # ── Serve frontend — must be last (catches all unmatched paths) ───────────────
 _frontend = Path(__file__).parent.parent.parent / "frontend" / "src"
 if _frontend.exists():
-    app.mount("/", StaticFiles(directory=str(_frontend), html=True), name="frontend")
+    app.mount("/", _NoCacheStatic(directory=str(_frontend), html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
