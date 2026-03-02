@@ -22,6 +22,7 @@ from core.docker_control import get_status, start, stop, get_logs, all_status
 from core.paths import get_all_paths, repoint, get_storage_stats
 from core.resources import projected_vram, check_alerts
 from core.enforcer import enforcement_loop, active_modes as _active_modes
+from core import ram_tier
 from core.extensions import load_all as _load_extensions, list_all as _list_extensions, \
     set_enabled as _ext_set_enabled, EXTENSIONS_DIR
 
@@ -77,15 +78,12 @@ def system_status():
     gpu = get_gpu_utilization()
     ram = psutil.virtual_memory()
     return {
-        "vram": vram,
-        "gpu": gpu,
-        "ram": {
-            "used_gb": round(ram.used / 1e9, 2),
-            "total_gb": round(ram.total / 1e9, 2),
-            "percent": ram.percent
-        },
+        "vram":     vram,
+        "gpu":      gpu,
+        "ram":      {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
+        "ram_tier": ram_tier.get_usage(),
         "services": all_status(SERVICES),
-        "alerts": check_alerts(),
+        "alerts":   check_alerts(),
     }
 
 
@@ -368,14 +366,42 @@ def config_paths_delete(name: str):
 
 @app.post("/config/paths/{name}")
 def config_paths_set(name: str, body: dict):
-    """body: {"target": "/new/path"}"""
+    """
+    body: {"target": "/new/path"} — absolute path, or:
+          {"target": "ram"}       — activate RAM tier (/dev/shm/oaio-<name>)
+          {"target": "default"}   — revert to default_target from config
+    Switching away from "ram" automatically cleans up the /dev/shm directory.
+    """
     cfg = json.loads(PATHS_CFG_FILE.read_text())
     if name not in cfg:
         return {"error": f"Unknown path: {name}"}
-    link = cfg[name]["link"]
-    new_target = body.get("target", "")
+
+    entry      = cfg[name]
+    link       = entry["link"]
+    new_target = body.get("target", "").strip()
     if not new_target:
         return {"error": "target is required"}
+
+    # Detect if currently on RAM tier so we can clean up on flip-away
+    try:
+        import os as _os
+        current_target = _os.readlink(link)
+        currently_ram  = current_target.startswith("/dev/shm/oaio-")
+    except OSError:
+        currently_ram = False
+
+    if new_target == "ram":
+        result = ram_tier.activate(name)
+        if not result["ok"]:
+            return result
+        new_target = result["path"]
+    elif new_target == "default":
+        new_target = entry["default_target"]
+        if currently_ram:
+            ram_tier.deactivate(name, move_to=new_target)
+    elif currently_ram:
+        ram_tier.deactivate(name)  # clean up shm without moving contents
+
     return repoint(link, new_target)
 
 
@@ -422,6 +448,7 @@ async def ws_status(websocket: WebSocket):
                 "vram":     vram,
                 "gpu":      gpu,
                 "ram":      {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
+                "ram_tier": ram_tier.get_usage(),
                 "services": all_status(SERVICES),
                 "alerts":   check_alerts(),
             }

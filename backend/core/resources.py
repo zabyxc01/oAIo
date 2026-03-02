@@ -6,6 +6,7 @@ Two layers:
   2. Live alerts: current VRAM vs warn/hard thresholds
 """
 from .vram import get_vram_usage
+from . import ram_tier
 
 VRAM_TOTAL_GB    = 20.0
 WARN_THRESHOLD   = 0.85   # 17.0 GB
@@ -80,4 +81,5 @@ def check_alerts() -> list[dict]:
             "message": f"VRAM {used:.1f}/{total}GB ({pct*100:.0f}%) — approaching limit",
         })
 
+    alerts.extend(ram_tier.check_alerts())
     return alerts
