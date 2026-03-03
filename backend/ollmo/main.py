@@ -9,6 +9,8 @@ import threading
 import psutil
 import httpx
 import docker as docker_sdk
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -32,6 +34,7 @@ from core.docker_control import get_status, start, stop, get_logs, all_status
 from core.paths import get_all_paths, repoint, get_storage_stats
 from core.resources import projected_vram, check_alerts, get_system_accounting
 from core.enforcer import enforcement_loop, active_modes as _active_modes, kill_log as _kill_log, register_manual_stop
+import core.enforcer as _enforcer
 from core import ram_tier
 from core.extensions import load_all as _load_extensions, list_all as _list_extensions, \
     set_enabled as _ext_set_enabled, EXTENSIONS_DIR
@@ -39,6 +42,19 @@ from core.extensions import load_all as _load_extensions, list_all as _list_exte
 OLLAMA_URL        = os.environ.get("OLLAMA_URL",        "http://localhost:11434")
 COMFYUI_USER_PATH = Path(os.environ.get("COMFYUI_USER_PATH", str(Path.home() / "ComfyUI" / "user")))
 RVC_GRADIO        = os.environ.get("RVC_GRADIO", "http://rvc:7865")
+
+# Benchmark history — rolling 5-minute window at 1Hz
+_bench_history: deque = deque(maxlen=300)
+
+
+async def _get_ollama_loaded() -> list[dict]:
+    """Return list of models currently loaded in Ollama VRAM."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f"{OLLAMA_URL}/api/ps")
+            return r.json().get("models", [])
+    except Exception:
+        return []
 
 
 def _docker_client():
@@ -511,26 +527,54 @@ def config_storage_stats():
     return get_storage_stats()
 
 
+@app.get("/benchmark/history")
+def benchmark_history():
+    return list(_bench_history)
+
+
 @app.websocket("/ws")
 async def ws_status(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            vram = get_vram_usage()
-            gpu  = get_gpu_utilization()
-            ram  = psutil.virtual_memory()
-            svcs = _services_cfg()
-            acct = get_system_accounting(svcs)
+            vram    = get_vram_usage()
+            gpu     = get_gpu_utilization()
+            ram     = psutil.virtual_memory()
+            svcs    = _services_cfg()
+            acct    = get_system_accounting(svcs)
+            loaded  = await _get_ollama_loaded()
+
+            # Append to benchmark history
+            _bench_history.append({
+                "ts":        datetime.now().strftime("%H:%M:%S"),
+                "vram_used": round(vram.get("used_gb", 0), 2),
+                "gpu_pct":   gpu.get("gpu_use_percent", 0),
+                "models":    [m["name"] for m in loaded],
+            })
+
+            from core.resources import WARN_THRESHOLD, HARD_THRESHOLD
+            pct = vram.get("percent", 0) / 100
+            vram_total = vram.get("total_gb", 21)
             payload = {
-                "vram":         vram,
-                "gpu":          gpu,
-                "ram":          {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
-                "ram_tier":     ram_tier.get_usage(),
-                "accounting":   acct,
-                "active_modes": list(_active_modes),
-                "services":     all_status(svcs),
-                "alerts":       check_alerts(),
-                "kill_log":     list(_kill_log)[:10],  # last 10 events
+                "vram":           vram,
+                "gpu":            gpu,
+                "ram":            {"used_gb": round(ram.used/1e9,2), "total_gb": round(ram.total/1e9,2), "percent": ram.percent},
+                "ram_tier":       ram_tier.get_usage(),
+                "accounting":     acct,
+                "active_modes":   list(_active_modes),
+                "services":       all_status(svcs),
+                "alerts":         check_alerts(),
+                "kill_log":       list(_kill_log)[:10],
+                "ollama_loaded":  loaded,
+                "enforcement": {
+                    "enabled":        _enforcer.enforcer_enabled,
+                    "active_modes":   list(_active_modes),
+                    "enforcing":      _enforcer.enforcer_enabled and pct >= HARD_THRESHOLD and bool(_active_modes),
+                    "warn_threshold": WARN_THRESHOLD,
+                    "hard_threshold": HARD_THRESHOLD,
+                    "warn_at_gb":     round(vram_total * WARN_THRESHOLD, 1),
+                    "hard_at_gb":     round(vram_total * HARD_THRESHOLD, 1),
+                },
             }
             await websocket.send_json(payload)
             await asyncio.sleep(1)
@@ -616,6 +660,7 @@ def enforcement_status():
 
     from core.resources import WARN_THRESHOLD, HARD_THRESHOLD, _FALLBACK_TOTAL
     vram_total = vram.get("total_gb", _FALLBACK_TOTAL)
+    enabled = _enforcer.enforcer_enabled
     return {
         "vram":            vram,
         "pct":             round(pct * 100, 1),
@@ -623,12 +668,25 @@ def enforcement_status():
         "hard_threshold":  HARD_THRESHOLD,
         "warn_at_gb":      round(vram_total * WARN_THRESHOLD, 1),
         "hard_at_gb":      round(vram_total * HARD_THRESHOLD, 1),
-        "enforcing":       pct >= HARD_THRESHOLD and bool(_active_modes),
+        "enabled":         enabled,
+        "enforcing":       enabled and pct >= HARD_THRESHOLD and bool(_active_modes),
         "active_modes":    list(_active_modes),
         "paused":          not bool(_active_modes),
         "kill_order":      candidates,
         "kill_log":        list(_kill_log),
     }
+
+
+@app.post("/enforcement/enable")
+def enforcement_enable():
+    _enforcer.enforcer_enabled = True
+    return {"enabled": True}
+
+
+@app.post("/enforcement/disable")
+def enforcement_disable():
+    _enforcer.enforcer_enabled = False
+    return {"enabled": False}
 
 
 @app.post("/modes/{name}/reset")

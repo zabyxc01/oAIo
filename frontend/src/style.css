@@ -875,7 +875,7 @@ body {
 /* ── SERVICES CARD ─────────────────────────────────────── */
 .svc-row {
   display: grid;
-  grid-template-columns: 8px 1fr 52px 36px 22px 22px 28px;
+  grid-template-columns: 8px 1fr 52px 36px 22px 22px 32px 28px;
   align-items: center;
   gap: 6px;
   padding: 4px 0;
@@ -1104,3 +1104,116 @@ body {
   .tab-grid { grid-template-columns: 1fr; }
   .card-wide, .card-full { grid-column: span 1; }
 }
+
+/* ── BENCHMARK CARD ────────────────────────────────────── */
+.bench-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.bench-model-chip {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: var(--fg);
+}
+.bench-model-chip.active {
+  border-color: var(--green);
+  color: var(--green);
+}
+.bench-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 9px;
+  color: var(--dim);
+  margin-left: auto;
+}
+.bench-stats b { color: var(--fg); }
+.bench-canvas {
+  width: 100%;
+  height: 80px;
+  display: block;
+  border-radius: 3px;
+  background: var(--bg3);
+}
+.bench-legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.bench-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8px;
+  color: var(--dim);
+}
+.bench-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── ENFORCEMENT CARD ──────────────────────────────────── */
+.enf-master-toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  margin-left: auto;
+}
+.enf-master-toggle input { display: none; }
+.enf-track {
+  width: 32px; height: 16px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  position: relative;
+  transition: background 0.2s;
+}
+.enf-track::after {
+  content: "";
+  position: absolute;
+  left: 2px; top: 2px;
+  width: 10px; height: 10px;
+  background: var(--dim);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+.enf-master-toggle input:checked + .enf-track { background: var(--green); border-color: var(--green); }
+.enf-master-toggle input:checked + .enf-track::after { transform: translateX(16px); background: #000; }
+
+.enf-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 9px;
+  border-bottom: 1px solid var(--border);
+}
+.enf-status-row:last-child { border-bottom: none; }
+.enf-status-label { color: var(--dim); }
+.enf-val { color: var(--fg); }
+.enf-ok  { color: var(--green); }
+.enf-hot { color: var(--red); font-weight: bold; }
+
+/* Per-service limit mode pill */
+.svc-lm {
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  user-select: none;
+}
+.lm-soft { color: var(--dim); border-color: var(--border); }
+.lm-hard { color: var(--red); border-color: var(--red); }
+.lm-off  { color: #555; border-color: #333; }

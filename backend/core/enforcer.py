@@ -29,6 +29,9 @@ CRASH_DELAY    = 30  # seconds after crash before attempting restart
 # Shared state — mutated by activate_mode / deactivate_mode in main.py
 active_modes: set[str] = set()
 
+# Master enforcement toggle — when False, OOM kills are disabled (crash watch still runs)
+enforcer_enabled: bool = True
+
 # Kill/crash/restore log — last 50 events, exported via WS + /enforcement/status
 kill_log: deque = deque(maxlen=50)
 
@@ -129,7 +132,10 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                         log.error("Failed to restore %s: %s", ctr, e)
                         _killed_services[ctr] = info  # retry next cycle
 
-            # ── 3. OOM enforcement — only when a mode is active ───────────────
+            # ── 3. OOM enforcement — only when enabled and a mode is active ────
+            if not enforcer_enabled:
+                continue
+
             if not active_modes:
                 continue
 

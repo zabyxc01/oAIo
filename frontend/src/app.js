@@ -856,6 +856,133 @@ document.getElementById("save-routing-btn").addEventListener("click", async () =
 
 // --- Live tab card renderers ---
 
+// Benchmark card
+const _benchHistory  = [];
+const _benchColors   = {};
+const _BENCH_PALETTE = [
+  "#4ade80","#60a5fa","#f59e0b","#e879f9","#fb923c",
+  "#34d399","#a78bfa","#f87171","#38bdf8","#facc15",
+];
+let _benchColorIdx = 0;
+
+function _benchColor(name) {
+  if (!_benchColors[name]) {
+    _benchColors[name] = _BENCH_PALETTE[_benchColorIdx % _BENCH_PALETTE.length];
+    _benchColorIdx++;
+  }
+  return _benchColors[name];
+}
+
+function renderBenchmark(loaded) {
+  // loaded = array of {name, size, ...} from ollama /api/ps
+  const modelRow = document.getElementById("bench-model-row");
+  const canvas   = document.getElementById("bench-canvas");
+  const legend   = document.getElementById("bench-legend");
+  if (!modelRow || !canvas || !legend) return;
+
+  // Current loaded models
+  if (!loaded || loaded.length === 0) {
+    modelRow.innerHTML = '<span class="dim">No model loaded</span>';
+  } else {
+    modelRow.innerHTML = loaded.map(m => {
+      const shortName = m.name.split("/").pop().split(":")[0];
+      const sizeGb    = m.size ? (m.size / 1e9).toFixed(1) + " GB" : "";
+      const color     = _benchColor(m.name);
+      return `<span class="bench-model-chip active" style="border-color:${color};color:${color}">${shortName}${sizeGb ? " · " + sizeGb : ""}</span>`;
+    }).join("") +
+    `<span class="bench-stats"><b>${loaded.length}</b> loaded</span>`;
+  }
+
+  // Snapshot current VRAM into history
+  const vramUsed = parseFloat(document.getElementById("vram-label")?.textContent) || 0;
+  const modelName = loaded && loaded.length > 0 ? loaded[0].name : null;
+  const now = new Date();
+  const tsLabel = now.toTimeString().slice(0, 8);
+  const prev = _benchHistory[_benchHistory.length - 1];
+  const swapped = prev && prev.model !== modelName;
+  _benchHistory.push({ vram: vramUsed, model: modelName, ts: tsLabel, swap: swapped });
+  if (_benchHistory.length > 300) _benchHistory.shift();
+
+  // Draw sparkline
+  const W = canvas.offsetWidth || 400;
+  const H = 90;
+  canvas.width  = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+
+  if (_benchHistory.length < 2) return;
+
+  const maxVram = 21; // GB — RX 7900 XT
+  const pts = _benchHistory.slice(-Math.min(_benchHistory.length, W));
+  const step = W / (pts.length - 1);
+  const chartH = H - 14; // reserve bottom 14px for time labels
+
+  // Draw filled area segments colored by model
+  for (let i = 1; i < pts.length; i++) {
+    const x0 = (i - 1) * step;
+    const x1 = i * step;
+    const y0 = chartH - (pts[i-1].vram / maxVram) * chartH;
+    const y1 = chartH - (pts[i].vram   / maxVram) * chartH;
+    const col = _benchColor(pts[i].model || "__idle__");
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(x1, chartH);
+    ctx.lineTo(x0, chartH);
+    ctx.closePath();
+    ctx.fillStyle = col + "33";
+    ctx.fill();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+
+  // Swap markers — vertical line + timestamp
+  ctx.font = "7px monospace";
+  for (let i = 0; i < pts.length; i++) {
+    if (!pts[i].swap) continue;
+    const x = i * step;
+    const col = _benchColor(pts[i].model || "__idle__");
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, chartH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Time label at bottom
+    ctx.fillStyle = col;
+    ctx.fillText(pts[i].ts, Math.min(x + 2, W - 50), H - 2);
+  }
+
+  // Y-axis labels
+  ctx.fillStyle = "#ffffff55";
+  ctx.font = "8px monospace";
+  ctx.fillText("21GB", 2, 10);
+  ctx.fillText("0", 2, chartH - 2);
+
+  // Legend
+  const seen = new Set();
+  const items = _benchHistory.filter(p => {
+    if (!p.model || seen.has(p.model)) return false;
+    seen.add(p.model); return true;
+  }).map(p => p.model);
+  seen.add("__idle__");
+
+  legend.innerHTML = items.map(name => {
+    const label = name === "__idle__" ? "idle" : name.split("/").pop();
+    return `<span class="bench-legend-item">
+      <span class="bench-legend-dot" style="background:${_benchColor(name)}"></span>
+      ${label}
+    </span>`;
+  }).join("") + (items.length === 0 ? '<span class="dim" style="font-size:8px">No data yet</span>' : "");
+}
+
 // Accounting strip (topbar #acct-strip)
 function renderAccounting(acct) {
   if (!acct) return;
@@ -899,6 +1026,61 @@ function formatAgo(secs) {
   return `${Math.round(secs / 3600)}h`;
 }
 
+// Enforcement card
+let _enfData = {};
+
+async function enfToggle(enabled) {
+  try {
+    await fetch(`${OLLMO_API}/enforcement/${enabled ? 'enable' : 'disable'}`, { method: "POST" });
+  } catch {}
+}
+
+async function svcSetLimitMode(name, mode) {
+  try {
+    await fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit_mode: mode }),
+    });
+    await fetchServicesCfg();
+  } catch {}
+}
+
+function renderEnforcement(data) {
+  if (!data) return;
+  _enfData = data;
+
+  const cb = document.getElementById("enf-master-cb");
+  if (cb && cb !== document.activeElement) cb.checked = data.enabled !== false;
+
+  const statusEl = document.getElementById("enf-status-val");
+  if (statusEl) {
+    const enabled = data.enabled !== false;
+    const paused  = !data.active_modes?.length;
+    let label, cls;
+    if (!enabled)      { label = "disabled"; cls = "dim"; }
+    else if (paused)   { label = "paused · no active mode"; cls = "dim"; }
+    else if (data.enforcing) { label = "ENFORCING"; cls = "enf-hot"; }
+    else               { label = "armed"; cls = "enf-ok"; }
+    statusEl.textContent = label;
+    statusEl.className   = "enf-val " + cls;
+  }
+
+  const warnEl = document.getElementById("enf-warn-val");
+  if (warnEl) warnEl.textContent = data.warn_at_gb != null ? `${data.warn_at_gb} GB (${Math.round(data.warn_threshold * 100)}%)` : "—";
+
+  const hardEl = document.getElementById("enf-hard-val");
+  if (hardEl) hardEl.textContent = data.hard_at_gb != null ? `${data.hard_at_gb} GB (${Math.round(data.hard_threshold * 100)}%)` : "—";
+
+  const koEl = document.getElementById("enf-kill-order");
+  if (koEl && data.kill_order) {
+    const killable = data.kill_order.filter(k => k.limit_mode === "hard");
+    koEl.textContent = killable.length
+      ? killable.map(k => k.service).join(" → ")
+      : "none (all soft)";
+  }
+}
+
 // Services card
 let _svcsCfg = {};
 
@@ -922,7 +1104,9 @@ function renderServices(services) {
     const st      = svc.status || "unknown";
     const dot     = st === "running" ? "ok" : (st === "exited" || st === "not_found") ? "err" : "warn";
     const running = st === "running";
-    const restore = cfg.auto_restore !== false;
+    const restore   = cfg.auto_restore !== false;
+    const limitMode = cfg.limit_mode || "soft";
+    const limitCls  = limitMode === "hard" ? "lm-hard" : limitMode === "off" ? "lm-off" : "lm-soft";
     return `<div class="svc-row">
       <span class="svc-dot ${dot}"></span>
       <span class="svc-name">${svc.name}</span>
@@ -932,6 +1116,8 @@ function renderServices(services) {
         onclick="svcAction('${svc.name}','start')">▶</button>
       <button class="svc-btn" title="Stop" ${!running ? 'disabled' : ''}
         onclick="svcAction('${svc.name}','stop')">■</button>
+      <span class="svc-lm ${limitCls}" title="Limit mode — click to cycle"
+        onclick="svcCycleLimitMode('${svc.name}','${limitMode}')">${limitMode}</span>
       <label class="svc-restore-toggle" title="${restore ? 'Auto-restore on' : 'Auto-restore off'}">
         <input type="checkbox" ${restore ? 'checked' : ''}
           onchange="svcToggleRestore('${svc.name}', this.checked)">
@@ -957,6 +1143,12 @@ async function svcToggleRestore(name, enabled) {
     });
     if (_svcsCfg[name]) _svcsCfg[name].auto_restore = enabled;
   } catch {}
+}
+
+async function svcCycleLimitMode(name, current) {
+  const cycle = { soft: "hard", hard: "off", off: "soft" };
+  const next  = cycle[current] || "soft";
+  await svcSetLimitMode(name, next);
 }
 
 // RAM tier card
@@ -1107,6 +1299,8 @@ function applyStatusUpdate(d) {
     if (d.kill_log !== undefined) renderKillLog(d.kill_log);
     if (d.services)               renderServices(d.services);
     if (d.ram_tier !== undefined) renderRamTier(d.ram_tier);
+    renderBenchmark(d.ollama_loaded || []);
+    if (d.enforcement)            renderEnforcement(d.enforcement);
 
     // Sync active modes from WS
     if (d.active_modes) {
