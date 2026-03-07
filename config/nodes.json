@@ -1,1 +1,319 @@
-{}
+{
+  "graphData": {
+    "last_node_id": 6,
+    "last_link_id": 7,
+    "nodes": [
+      {
+        "id": 1,
+        "type": "oAIo/ollama",
+        "pos": [
+          60,
+          60
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 3,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "llm_req",
+            "type": "request",
+            "link": 1
+          }
+        ],
+        "outputs": [
+          {
+            "name": "llm_resp",
+            "type": "response",
+            "links": [
+              5
+            ]
+          }
+        ],
+        "title": "Ollama",
+        "properties": {},
+        "color": "#2a2a1a",
+        "bgcolor": "#1a1a1a"
+      },
+      {
+        "id": 5,
+        "type": "oAIo/f5-tts",
+        "pos": [
+          60,
+          380
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 0,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "clone_req",
+            "type": "request",
+            "link": null
+          }
+        ],
+        "outputs": [
+          {
+            "name": "clone_audio",
+            "type": "audio",
+            "links": [
+              4
+            ]
+          }
+        ],
+        "title": "F5-tts",
+        "properties": {},
+        "color": "#2a2a1a",
+        "bgcolor": "#1a1a1a"
+      },
+      {
+        "id": 4,
+        "type": "oAIo/open-webui",
+        "pos": [
+          320,
+          60
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 4,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "llm_resp",
+            "type": "response",
+            "link": 5
+          },
+          {
+            "name": "tts_audio",
+            "type": "audio",
+            "link": 6
+          },
+          {
+            "name": "image",
+            "type": "image",
+            "link": 7
+          }
+        ],
+        "outputs": [
+          {
+            "name": "llm_req",
+            "type": "request",
+            "links": [
+              1
+            ]
+          },
+          {
+            "name": "tts_req",
+            "type": "request",
+            "links": null
+          },
+          {
+            "name": "imggen_req",
+            "type": "request",
+            "links": [
+              2
+            ]
+          }
+        ],
+        "title": "Open-webui",
+        "properties": {},
+        "color": "#2a2a1a",
+        "bgcolor": "#1a1a1a"
+      },
+      {
+        "id": 6,
+        "type": "oAIo/comfyui",
+        "pos": [
+          580,
+          59
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 5,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "imggen_req",
+            "type": "request",
+            "link": 2
+          }
+        ],
+        "outputs": [
+          {
+            "name": "image",
+            "type": "image",
+            "links": [
+              7
+            ]
+          }
+        ],
+        "title": "Comfyui",
+        "properties": {},
+        "color": "#2a2a1a",
+        "bgcolor": "#1a1a1a"
+      },
+      {
+        "id": 2,
+        "type": "oAIo/kokoro-tts",
+        "pos": [
+          65,
+          215
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 1,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "tts_req",
+            "type": "request",
+            "link": null
+          }
+        ],
+        "outputs": [
+          {
+            "name": "raw_audio",
+            "type": "audio",
+            "links": [
+              3
+            ]
+          }
+        ],
+        "title": "Kokoro-tts",
+        "properties": {},
+        "color": "#2a2a1a",
+        "bgcolor": "#1a1a1a"
+      },
+      {
+        "id": 3,
+        "type": "oAIo/rvc",
+        "pos": [
+          320,
+          219
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 2,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "raw_audio",
+            "type": "audio",
+            "link": 3
+          },
+          {
+            "name": "clone_audio",
+            "type": "audio",
+            "link": 4
+          }
+        ],
+        "outputs": [
+          {
+            "name": "tts_audio",
+            "type": "audio",
+            "links": [
+              6
+            ]
+          }
+        ],
+        "title": "Rvc",
+        "properties": {},
+        "color": "#2a2a1a",
+        "bgcolor": "#1a1a1a"
+      }
+    ],
+    "links": [
+      [
+        1,
+        4,
+        0,
+        1,
+        0,
+        "request"
+      ],
+      [
+        2,
+        4,
+        2,
+        6,
+        0,
+        "request"
+      ],
+      [
+        3,
+        2,
+        0,
+        3,
+        0,
+        "audio"
+      ],
+      [
+        4,
+        5,
+        0,
+        3,
+        1,
+        "audio"
+      ],
+      [
+        5,
+        1,
+        0,
+        4,
+        0,
+        "response"
+      ],
+      [
+        6,
+        3,
+        0,
+        4,
+        1,
+        "audio"
+      ],
+      [
+        7,
+        6,
+        0,
+        4,
+        2,
+        "image"
+      ]
+    ],
+    "groups": [],
+    "config": {},
+    "extra": {},
+    "version": 0.4
+  },
+  "nodeConfigs": {
+    "Ollama": {
+      "memory": "vram",
+      "priority": "1",
+      "bus": "nvme",
+      "limit": "soft",
+      "boot": false,
+      "sub": {
+        "vramAlloc": "4"
+      }
+    }
+  }
+}

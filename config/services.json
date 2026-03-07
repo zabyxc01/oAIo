@@ -6,7 +6,7 @@
       "vram_est_gb": 7.5,
       "ram_est_gb": 7.2,
       "priority": 1,
-      "limit_mode": "soft",
+      "limit_mode": "hard",
       "auto_restore": false,
       "group": "oLLM",
       "memory_mode": "vram",
@@ -44,7 +44,7 @@
       "vram_est_gb": 0,
       "ram_est_gb": 0.8,
       "priority": 2,
-      "limit_mode": "soft",
+      "limit_mode": "hard",
       "auto_restore": false,
       "group": "oAudio",
       "memory_mode": "ram",
@@ -67,7 +67,7 @@
       "vram_est_gb": 3.0,
       "ram_est_gb": 6.0,
       "priority": 2,
-      "limit_mode": "soft",
+      "limit_mode": "hard",
       "auto_restore": false,
       "group": "oAudio",
       "memory_mode": "vram",
@@ -122,6 +122,21 @@
           "action_method": null
         }
       ]
+    },
+    "styletts2": {
+      "container": "styletts2",
+      "port": 7870,
+      "vram_est_gb": 1.5,
+      "ram_est_gb": 2.0,
+      "priority": 4,
+      "limit_mode": "hard",
+      "group": "oAudio",
+      "description": "Multi-speaker TTS + voice cloning via reference audio",
+      "capabilities": [
+        "tts",
+        "voice-clone"
+      ],
+      "auto_restore": false
     }
   },
   "vram_total_gb": 20,

@@ -1,0 +1,37 @@
+{
+  "active": null,
+  "profiles": {
+    "jetson-nano": {
+      "name": "Jetson Nano",
+      "vram_gb": 4,
+      "ram_gb": 4,
+      "cpu_cores": 4,
+      "io_mbps": 400,
+      "description": "NVIDIA Jetson Nano \u2014 4GB shared VRAM/RAM, quad-core ARM"
+    },
+    "youyeetoo-x1": {
+      "name": "youyeetoo X1",
+      "vram_gb": 2,
+      "ram_gb": 8,
+      "cpu_cores": 4,
+      "io_mbps": 500,
+      "description": "youyeetoo X1 SBC \u2014 Intel N100, 2GB iGPU shared, 8GB RAM"
+    },
+    "rpi5-8gb": {
+      "name": "Raspberry Pi 5 (8GB)",
+      "vram_gb": 0,
+      "ram_gb": 8,
+      "cpu_cores": 4,
+      "io_mbps": 300,
+      "description": "Raspberry Pi 5 \u2014 no discrete GPU, 8GB RAM, quad-core ARM"
+    },
+    "mini-pc-16gb": {
+      "name": "Mini PC 16GB",
+      "vram_gb": 2,
+      "ram_gb": 16,
+      "cpu_cores": 6,
+      "io_mbps": 2000,
+      "description": "Generic mini PC \u2014 2GB iGPU, 16GB RAM, 6-core x86"
+    }
+  }
+}

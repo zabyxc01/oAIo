@@ -2,7 +2,7 @@
 
 Local AI workstation orchestration platform for SYS-PANDORA-OAO and compatible systems.
 
-oAIo manages GPU memory, service lifecycles, storage tiers, voice pipelines, image generation, and multi-node fleet coordination — all from a single control plane with a 3-tab fluid-grid UI.
+oAIo manages GPU memory, service lifecycles, storage tiers, voice pipelines, image generation, and multi-node fleet coordination — all from a single control plane with a 4-tab fluid-grid UI featuring live topology, auto-generated API docs, and real-time request monitoring.
 
 ---
 
@@ -12,10 +12,11 @@ oAIo manages GPU memory, service lifecycles, storage tiers, voice pipelines, ima
 |-----------|-------|---------|------|
 | oaio | local build | 9000, 8002 | Control plane API + UI |
 | ollama | ollama/ollama:rocm | 11434 | LLM inference (ROCm) |
-| open-webui | ghcr.io/open-webui/open-webui:main | 3000 | Chat UI |
+| open-webui | ghcr.io/open-webui/open-webui:main | 3000 | Chat UI (RAG via Ollama nomic-embed-text) |
 | kokoro-tts | local build | 8000 | TTS synthesis |
 | rvc | local build | 7865, 8001 | Voice conversion proxy |
 | f5-tts | local build | 7860 | Voice cloning |
+| styletts2 | local build | 7870 | StyleTTS2 voice prototyping |
 | comfyui | local build | 8188 | Image generation |
 
 ---
@@ -27,11 +28,7 @@ oAIo manages GPU memory, service lifecycles, storage tiers, voice pipelines, ima
 git clone https://github.com/zabyxc01/oAIo
 cd oAIo
 
-# Configure
-cp .env.example .env
-# Edit .env — set HSA_OVERRIDE_GFX_VERSION, PYTORCH_ROCM_ARCH for your GPU
-
-# Run install script (sets up symlinks, directories, systemd service)
+# Install (sets up symlinks, directories, systemd service, .env)
 chmod +x install.sh && ./install.sh
 
 # Start stack
@@ -39,6 +36,13 @@ docker compose up -d
 
 # Open UI
 http://localhost:9000
+```
+
+## Uninstall
+
+```bash
+# Interactive — confirms each step, never deletes model data
+bash uninstall.sh
 ```
 
 ---
@@ -50,9 +54,9 @@ http://localhost:9000
 All service data paths route through `/mnt/oaio/` symlinks. This provides an atomic tier-switching layer — swapping a symlink target instantly redirects any service's data path with zero downtime.
 
 ```
-/mnt/oaio/models    → /mnt/storage/ai/comfyui/models   (NVMe, default)
-/mnt/oaio/models    → /dev/shm/oaio-models              (RAM tier, on demand)
-/mnt/oaio/ollama    → /mnt/windows-sata/ollama-models   (SATA)
+/mnt/oaio/models    -> /mnt/storage/ai/comfyui/models   (NVMe, default)
+/mnt/oaio/models    -> /dev/shm/oaio-models              (RAM tier, on demand)
+/mnt/oaio/ollama    -> /mnt/windows-sata/ollama-models   (SATA)
 ```
 
 Managed via `POST /config/paths/{name}` — accepts absolute path or `"ram"` / `"default"` shortcuts.
@@ -68,19 +72,30 @@ Managed via `POST /config/paths/{name}` — accepts absolute path or `"ram"` / `
 
 RAM tier ceiling is auto-detected per machine: `total_ram - max(8GB, 25%)`. Activates via symlink flip, tracked in the WS stream.
 
-### UI — 3-Tab Fluid Grid
+### UI — 4-Tab Fluid Grid
 
 **LIVE tab** — cards that update from the 1Hz WS stream:
 - **Mode Select** — all modes with VRAM estimate; active modes highlighted
 - **VRAM / RAM Accounting** — used / external / headroom with stacked bar
 - **Kill Log** — last 10 enforcer events (kill / crash / restore) with timestamps
-- **Services** — per-service status dot, start/stop buttons, VRAM estimate, and auto-restore toggle
-- **RAM Tier** — path list with current tier badge and NVMe↔RAM toggle
+- **Services** — per-service status dot, start/stop buttons, VRAM estimate, auto-restore toggle, limit-mode cycling
+- **RAM Tier** — path list with current tier badge and NVMe<->RAM toggle
+- **Enforcement** — ON/OFF master toggle, status, VRAM thresholds, kill order preview
+- **Benchmark** — rolling VRAM/GPU history chart
 - **Timeline** — resizable heat-map canvas (VRAM + RAM + GPU% + NVMe R/W + SATA R/W); drag handle to resize; view toggles
 
-**CONFIG tab** — LiteGraph node-graph (lazy-loaded; placeholder until clicked)
+**CONFIG tab** — LiteGraph node-graph editor:
+- Service nodes with I/O ports (auto-generated from services.json capabilities)
+- Graph persistence via `/config/nodes`
+- Add-service modal, pull-model UI, right-click context menu
 
-**ADVANCED tab** — storage paths, routing URLs, templates, API reference
+**ADVANCED tab** — storage paths, routing URLs, templates
+
+**API tab** — three cards:
+- **How It Works** — collapsible guide sections (Modes, Services, Connections, Enforcement, Audio, Extensions)
+- **Topology** — live view of current modes, nodes, and connections (auto-refreshes every 5s)
+- **Endpoints** — auto-generated from `/openapi.json`, grouped by tag, click to expand params/response schemas
+- **Live Monitor** — aggregated stats (total reqs, avg latency, errors, top endpoints) + real-time request stream via WebSocket
 
 ### Resource Enforcement
 
@@ -94,7 +109,7 @@ RAM tier ceiling is auto-detected per machine: `total_ram - max(8GB, 25%)`. Acti
 - **Crash detection** — unexpected container exits (OOM, f5-tts startup pressure, etc.) detected and restored with same 30s backoff
 - **active_modes persisted** — survives oaio restarts via `config/active_modes.json`; enforcer resumes correct state on boot
 - Mode-aware — enforcer pauses when no mode is active (safe for gaming/other GPU use)
-- Priority: ollama=1 (protected), rvc/kokoro=2 (soft), comfyui=3, open-webui=4, f5-tts=5 (first to die)
+- Priority: ollama=1 (protected), rvc/kokoro=2 (soft), comfyui=3, open-webui/styletts2=4, f5-tts=5 (first to die)
 - VRAM total read from sysfs dynamically — not hardcoded
 - Stop latency: background thread + 3s SIGKILL timeout — UI responds instantly, container gone within 3s
 
@@ -103,8 +118,9 @@ RAM tier ceiling is auto-detected per machine: `total_ram - max(8GB, 25%)`. Acti
 Modes define which services run together and their VRAM budget:
 
 ```
-CONVERSE  → ollama + open-webui + kokoro-tts + rvc  (11GB budget)
-CREATE    → + comfyui                                 (20GB budget)
+oLLMo         -> ollama + open-webui + kokoro-tts + rvc  (11GB budget)
+oAudio        -> kokoro-tts + rvc + f5-tts               (5GB budget)
+comfyui-flex  -> comfyui                                  (18GB budget)
 ```
 
 `POST /modes/{name}/activate` — starts all mode services, registers with enforcer
@@ -113,7 +129,7 @@ CREATE    → + comfyui                                 (20GB budget)
 ### Voice Pipeline
 
 ```
-OpenWebUI → RVC proxy (8001) → Kokoro TTS (8000) → voice output
+OpenWebUI -> RVC proxy (8001) -> Kokoro TTS (8000) -> voice output
 ```
 
 - 6 OpenAI-compatible voice names (alloy, nova, shimmer, echo, fable, onyx)
@@ -123,9 +139,28 @@ OpenWebUI → RVC proxy (8001) → Kokoro TTS (8000) → voice output
 
 Voice cloning (`POST /clone` on port 8002):
 ```
-ref_audio + [ref_text] + target_text → F5-TTS → WAV
+ref_audio + [ref_text] + target_text -> F5-TTS -> WAV
 ```
 If `ref_text` is omitted, auto-transcribed via Whisper tiny.
+
+### StyleTTS2 — Voice Prototyping (port 7870)
+
+Standalone Gradio UI for generating speech with fine-grained style control. Feeds into RVC for voice design work.
+
+**Voice presets:** 8 seed-based speakers (`f-us-1` through `f-us-4`, `m-us-1` through `m-us-4`) for repeatable identity. Upload reference audio for voice cloning.
+
+**Parameters:**
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| Diffusion steps | 1-20 | 5 | Denoising passes. More = diverse/expressive but slower. 5 is the sweet spot. |
+| Alpha (timbre) | 0.0-1.0 | 0.3 | 0 = pure speaker voice, 1 = text-predicted timbre (ignores speaker identity). Keep low (0.1-0.4) for consistent voice. |
+| Beta (prosody) | 0.0-1.0 | 0.7 | 0 = natural conversational pacing, 1 = dramatic text-driven delivery. |
+| Embedding scale | 0.0-5.0 | 1.0 | Emotional expressiveness. 0 = monotone, 3-5 = theatrical. |
+
+**Practical combos:**
+- Neutral base for RVC: alpha 0.3, beta 0.5, embedding 1
+- Expressive/animated: alpha 0.3, beta 0.8, embedding 2-3
+- Maximum emotion control: low alpha + low beta + high embedding
 
 ### Extension System
 
@@ -163,6 +198,9 @@ All endpoints on port 9000 unless noted.
 | GET | /system/status | Full system snapshot |
 | GET | /vram | GPU VRAM usage |
 | GET | /enforcement/status | Enforcer state, kill order, full kill log |
+| POST | /enforcement/enable | Enable enforcer |
+| POST | /enforcement/disable | Disable enforcer |
+| POST | /emergency/kill | Kill all containers immediately |
 | WS | /ws | 1Hz push: vram/gpu/ram/ram_tier/accounting/active_modes/services/alerts/kill_log |
 
 ### Services
@@ -175,13 +213,17 @@ All endpoints on port 9000 unless noted.
 | GET | /services/{name}/logs | Container logs |
 | GET | /services/ollama/models | List Ollama models |
 | POST | /services/ollama/models/{name}/load | Load Ollama model |
+| POST | /services/ollama/models/pull | Pull new Ollama model |
+| DELETE | /services/ollama/models/{name} | Delete Ollama model |
 | GET | /services/rvc/models | List RVC models |
 | POST | /services/rvc/models/{name}/activate | Switch RVC voice model |
+| GET | /services/comfyui/workflows | List ComfyUI workflows |
 
 ### Modes
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /modes | List all modes |
+| POST | /modes | Create new mode |
 | POST | /modes/{name}/activate | Activate mode (start services) |
 | POST | /modes/{name}/deactivate | Deactivate mode |
 | GET | /modes/{name}/check | VRAM projection (dry run) |
@@ -191,12 +233,29 @@ All endpoints on port 9000 unless noted.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /config/paths | All symlink paths + tier + exists |
+| POST | /config/paths | Add new symlink path |
 | POST | /config/paths/{name} | Repoint symlink (or `"ram"`/`"default"`) |
+| DELETE | /config/paths/{name} | Remove symlink entry |
 | GET | /config/services | Service registry |
 | POST | /config/services | Register new service |
-| PATCH | /config/services/{name} | Update service fields (priority, limit_mode, auto_restore, …) |
+| PATCH | /config/services/{name} | Update service fields (priority, limit_mode, auto_restore, ...) |
 | GET | /config/routing | Routing config |
+| POST | /config/routing | Update routing config |
 | GET | /config/storage/stats | NVMe/SATA MB/s |
+| GET | /config/nodes | LiteGraph node positions |
+| POST | /config/nodes | Save LiteGraph node positions |
+
+### Benchmark
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /benchmark/history | Rolling 5-min VRAM/GPU/loaded-model history (300 samples, 1Hz) |
+
+### Monitor
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/monitor/stream | Last N logged API requests |
+| GET | /api/monitor/stats | Aggregated request stats (total, avg latency, errors, top endpoints) |
+| WS | /api/monitor/ws | Live request push (real-time) |
 
 ### Templates
 | Method | Path | Description |
@@ -233,9 +292,9 @@ All endpoints on port 9000 unless noted.
 ### oAudio (port 8002)
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | /speak | Text → Kokoro → RVC → MP3 |
-| POST | /convert | Audio → RVC conversion → MP3 |
-| POST | /clone | Voice cloning via F5-TTS → WAV |
+| POST | /speak | Text -> Kokoro -> RVC -> MP3 |
+| POST | /convert | Audio -> RVC conversion -> MP3 |
+| POST | /clone | Voice cloning via F5-TTS -> WAV |
 | GET | /voices | List available voices |
 
 ---
@@ -294,6 +353,7 @@ All endpoints on port 9000 unless noted.
 | 5f8f990 | Enforcer: kill log, recovery, crash watch, active_modes persistence, stale cache fix |
 | 53be4dd | Cleanup: remove stale SERVICES cache, gitignore active_modes.json |
 | de3cd43 | 3-tab fluid grid UI; timeline heatmap; auto_restore toggle; stop latency fix; manual stop crash detection |
+| 2cf6d54 | Benchmark monitor, enforcement toggle, per-service limit mode |
 
 ---
 

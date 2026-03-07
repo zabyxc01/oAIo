@@ -22,6 +22,13 @@ def _vram_total() -> float:
     return v.get("total_gb", _FALLBACK_TOTAL) or _FALLBACK_TOTAL
 
 
+def get_effective_vram_total() -> float:
+    """Return virtual ceiling if set, else true VRAM total."""
+    from . import enforcer
+    if enforcer.vram_virtual_ceiling_gb is not None and enforcer.vram_virtual_ceiling_gb > 0:
+        return enforcer.vram_virtual_ceiling_gb
+    return _vram_total()
+
 
 def get_system_accounting(services_cfg: dict) -> dict:
     """
@@ -39,7 +46,7 @@ def get_system_accounting(services_cfg: dict) -> dict:
     from .docker_control import get_status
 
     vram = get_vram_usage()
-    vram_total = vram.get("total_gb", _FALLBACK_TOTAL)
+    vram_total = get_effective_vram_total()
     vram_used  = vram.get("used_gb", 0.0)
 
     ram = psutil.virtual_memory()
@@ -94,8 +101,8 @@ def projected_vram(mode: dict, services_cfg: dict) -> dict:
       details       — {service: alloc_gb} breakdown
     """
     acct = get_system_accounting(services_cfg)
-    vram_total   = acct["vram_total"]
-    vram_headroom = acct["vram_headroom"]
+    vram_total    = get_effective_vram_total()
+    vram_headroom = round(max(vram_total - acct["vram_used"], 0.0), 2)
 
     active = set(mode.get("services", []))
     alloc_overrides = mode.get("allocations", {})
