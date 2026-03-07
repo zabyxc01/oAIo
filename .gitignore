@@ -6,3 +6,4 @@ __pycache__/
 templates/*.json
 docs/stack/
 config/active_modes.json
+kill_log.json

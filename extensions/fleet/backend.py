@@ -19,10 +19,13 @@ WebSocket:
   WS /ws                 — fleet-wide status stream (1Hz)
 """
 import asyncio
+import ipaddress
 import json
+import socket
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -60,6 +63,43 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# ─── URL safety ──────────────────────────────────────────────────────────────
+
+_PRIVATE_NETWORKS = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+)
+
+
+def _is_safe_url(url: str) -> tuple[bool, str]:
+    """
+    Validate that a node URL uses http(s) and does not resolve to a
+    private/loopback/link-local address (SSRF protection).
+    Returns (safe, reason).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, "URL scheme must be http or https"
+    hostname = parsed.hostname
+    if not hostname:
+        return False, "URL has no hostname"
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False, f"Cannot resolve hostname '{hostname}'"
+    for _family, _type, _proto, _canonname, sockaddr in infos:
+        addr = ipaddress.ip_address(sockaddr[0])
+        for net in _PRIVATE_NETWORKS:
+            if addr in net:
+                return False, f"Hostname resolves to private/reserved address {addr}"
+    return True, ""
+
+
 # ─── Node endpoints ───────────────────────────────────────────────────────────
 
 @router.post("/nodes/register")
@@ -73,6 +113,10 @@ async def register_node(body: dict):
     url  = body.get("url",  "").strip().rstrip("/")
     if not name or not url:
         return {"error": "name and url are required"}
+
+    safe, reason = _is_safe_url(url)
+    if not safe:
+        return {"error": f"Rejected node URL: {reason}"}
 
     state = _load()
 

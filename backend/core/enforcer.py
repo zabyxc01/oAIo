@@ -14,13 +14,19 @@ Actions by service limit_mode:
   hard  — stopped on OOM, restored when pressure drops
 """
 import asyncio
+import json
 import logging
 import time
+import traceback
 from collections import deque
+from pathlib import Path
 from .vram import get_vram_usage
-from .resources import HARD_THRESHOLD, WARN_THRESHOLD
+from . import resources
 
 log = logging.getLogger("enforcer")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+KILL_LOG_FILE = Path(__file__).parent.parent.parent / "config" / "kill_log.json"
 
 POLL_INTERVAL  = 5   # seconds between enforcement cycles
 RECOVERY_DELAY = 30  # seconds after kill before attempting restart
@@ -32,8 +38,35 @@ active_modes: set[str] = set()
 # Master enforcement toggle — when False, OOM kills are disabled (crash watch still runs)
 enforcer_enabled: bool = True
 
+# Virtual VRAM ceiling — when set, enforcer pretends GPU has this much total VRAM
+vram_virtual_ceiling_gb: float | None = None
+
 # Kill/crash/restore log — last 50 events, exported via WS + /enforcement/status
 kill_log: deque = deque(maxlen=50)
+
+
+def _load_kill_log():
+    """Restore kill log from disk on startup."""
+    if KILL_LOG_FILE.exists():
+        try:
+            entries = json.loads(KILL_LOG_FILE.read_text())
+            for entry in entries:
+                kill_log.append(entry)
+        except Exception:
+            pass
+
+
+def _persist_kill_log():
+    """Write kill log to disk atomically so it survives restarts."""
+    try:
+        tmp = KILL_LOG_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(list(kill_log), indent=2))
+        tmp.replace(KILL_LOG_FILE)
+    except Exception:
+        pass
+
+
+_load_kill_log()
 
 # Containers killed or crashed: {container_name: {svc_name, priority, killed_at, reason}}
 # reason "manual" = user-stopped; never auto-restored
@@ -68,6 +101,13 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
             if "error" in vram or vram.get("total_gb", 0) == 0:
                 continue
 
+            # Apply virtual VRAM ceiling if set (bottleneck simulator)
+            if vram_virtual_ceiling_gb is not None and vram_virtual_ceiling_gb > 0:
+                vram = dict(vram)  # don't mutate original
+                vram["total_gb"] = vram_virtual_ceiling_gb
+                used = vram.get("used_gb", 0)
+                vram["percent"] = round((used / vram_virtual_ceiling_gb) * 100, 1) if vram_virtual_ceiling_gb else 0
+
             pct      = vram.get("percent", 0) / 100
             services = get_services_fn()
             client   = get_docker_fn()
@@ -98,11 +138,12 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                         "vram_used": round(vram.get("used_gb", 0), 2),
                         "ts":        time.time(),
                     })
+                    _persist_kill_log()
 
                 _prev_status[ctr] = status
 
             # ── 2. Recovery — restart killed/crashed containers when safe ─────
-            if _killed_services and pct < WARN_THRESHOLD:
+            if _killed_services and pct < resources.WARN_THRESHOLD:
                 now        = time.time()
                 to_restore = [
                     ctr for ctr, info in _killed_services.items()
@@ -128,6 +169,7 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                             "ts":        time.time(),
                             "reason":    info.get("reason", "oom"),
                         })
+                        _persist_kill_log()
                     except Exception as e:
                         log.error("Failed to restore %s: %s", ctr, e)
                         _killed_services[ctr] = info  # retry next cycle
@@ -139,7 +181,7 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
             if not active_modes:
                 continue
 
-            if pct < HARD_THRESHOLD:
+            if pct < resources.HARD_THRESHOLD:
                 _last_kill = None  # reset cooldown when pressure drops
                 continue
 
@@ -191,9 +233,10 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                     "ts":        time.time(),
                     "reason":    "oom",
                 })
+                _persist_kill_log()
                 log.info("Stopped %s", target_ctr)
             except Exception as e:
                 log.error("Failed to stop %s: %s", target_ctr, e)
 
         except Exception as e:
-            log.error("Enforcer loop error: %s", e)
+            log.error("Enforcer loop error: %s\n%s", e, traceback.format_exc())

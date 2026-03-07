@@ -4,11 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>oAIo</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%230d0d0d'/><circle cx='16' cy='16' r='8' fill='none' stroke='%234a9eff' stroke-width='2.5'/><circle cx='16' cy='16' r='3' fill='%234a9eff'/></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='2' fill='%23080808'/><circle cx='16' cy='16' r='8' fill='none' stroke='%23e10600' stroke-width='2.5'/><circle cx='16' cy='16' r='3' fill='%23e10600'/></svg>" />
   <link rel="stylesheet" href="litegraph.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+
+  <!-- BACKGROUND IMAGE LAYER -->
+  <div id="bg-image-layer"></div>
 
   <!-- ALERT BANNER -->
   <div id="alert-banner" class="alert-banner hidden"></div>
@@ -19,11 +22,14 @@
       <button class="tab-btn active" data-tab="live">LIVE</button>
       <button class="tab-btn" data-tab="config">CONFIG</button>
       <button class="tab-btn" data-tab="advanced">ADVANCED</button>
+      <button class="tab-btn" data-tab="api">API</button>
+      <button class="tab-btn" data-tab="settings">SETTINGS</button>
+      <button class="tab-btn" data-tab="help">HELP</button>
     </div>
+    <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">&#9776;</button>
     <div class="tab-nav-right">
       <button class="sec-toggle" data-section="telemetry" title="Toggle telemetry strip">TELEMETRY</button>
       <button class="sec-toggle" data-section="accounting" title="Toggle accounting row">ACCOUNTING</button>
-      <button class="sec-toggle" data-section="timeline" title="Toggle timeline">TIMELINE</button>
       <button id="emergency-kill-btn" title="Emergency kill — stop all services and clear modes">⬛ KILL ALL</button>
     </div>
   </div>
@@ -68,6 +74,66 @@
   <div class="tab-content active" id="tab-live">
     <div class="tab-grid">
 
+      <!-- Benchmark Monitor (full width) -->
+      <div class="card card-full" id="card-benchmark">
+        <div class="card-title">BENCHMARK <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live model performance</span></div>
+        <div id="bench-model-row" class="bench-model-row"><span class="dim">No model loaded</span></div>
+        <canvas id="bench-canvas" class="bench-canvas"></canvas>
+        <div id="bench-legend" class="bench-legend"></div>
+      </div>
+
+      <!-- API Monitor (full width, fixed height) -->
+      <div class="card card-full" id="card-monitor">
+        <div class="card-title">API MONITOR <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live request stream</span></div>
+        <div class="live-monitor-layout">
+          <div class="live-monitor-stats">
+            <div class="lms-row"><span class="lms-label">requests</span><span class="lms-val" id="lms-total">0</span></div>
+            <div class="lms-row"><span class="lms-label">avg latency</span><span class="lms-val" id="lms-latency">0 ms</span></div>
+            <div class="lms-row"><span class="lms-label">errors</span><span class="lms-val" id="lms-errors">0</span></div>
+          </div>
+          <div class="live-monitor-stream" id="live-monitor-stream"></div>
+        </div>
+      </div>
+
+      <!-- Enforcement Control -->
+      <div class="card" id="card-enforcement">
+        <div class="card-title">
+          ENFORCEMENT
+          <label class="enf-master-toggle" title="Enable/disable OOM enforcement">
+            <input type="checkbox" id="enf-master-cb" onchange="enfToggle(this.checked)">
+            <span class="enf-track"></span>
+          </label>
+        </div>
+        <div class="enf-status-row">
+          <span class="enf-status-label">status</span>
+          <span id="enf-status-val" class="enf-val dim">—</span>
+        </div>
+        <div class="enf-status-row">
+          <span class="enf-status-label">VRAM ceiling</span>
+          <div class="enf-input-group">
+            <input type="number" id="enf-ceiling-input" class="enf-input" min="0" max="999" step="0.5" placeholder="—" title="Virtual VRAM ceiling (0 = real hardware)" />
+            <span class="enf-unit">GB</span>
+            <button class="enf-apply-btn" id="enf-ceiling-apply" title="Apply ceiling">SET</button>
+            <button class="enf-clear-btn" id="enf-ceiling-clear" title="Clear ceiling (use real VRAM)">CLR</button>
+          </div>
+        </div>
+        <div id="enf-ceiling-warn" class="enf-warn-msg hidden"></div>
+        <div class="enf-status-row">
+          <span class="enf-status-label">VRAM warn</span>
+          <span id="enf-warn-val" class="enf-val">—</span>
+        </div>
+        <div class="enf-status-row">
+          <span class="enf-status-label">VRAM hard kill</span>
+          <span id="enf-hard-val" class="enf-val">—</span>
+        </div>
+      </div>
+
+      <!-- Kill Log -->
+      <div class="card" id="card-killlog">
+        <div class="card-title">KILL LOG <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· enforcer events</span></div>
+        <div id="killlog-list"><span class="dim">No enforcer events</span></div>
+      </div>
+
       <!-- Mode Select -->
       <div class="card" id="card-modes">
         <div class="card-title">MODE SELECT</div>
@@ -86,77 +152,22 @@
         </div>
       </div>
 
-      <!-- Enforcement Control -->
-      <div class="card" id="card-enforcement">
+      <!-- RAM Tier -->
+      <div class="card" id="card-ramtier">
         <div class="card-title">
-          ENFORCEMENT
-          <label class="enf-master-toggle" title="Enable/disable OOM enforcement">
-            <input type="checkbox" id="enf-master-cb" onchange="enfToggle(this.checked)">
+          RAM TIER
+          <label class="enf-master-toggle" title="Enable/disable all RAM tier paths">
+            <input type="checkbox" id="rt-master-cb" onchange="rtMasterToggle(this.checked)">
             <span class="enf-track"></span>
           </label>
         </div>
-        <div class="enf-status-row">
-          <span class="enf-status-label">status</span>
-          <span id="enf-status-val" class="enf-val dim">—</span>
-        </div>
-        <div class="enf-status-row">
-          <span class="enf-status-label">VRAM warn</span>
-          <span id="enf-warn-val" class="enf-val">—</span>
-        </div>
-        <div class="enf-status-row">
-          <span class="enf-status-label">VRAM hard kill</span>
-          <span id="enf-hard-val" class="enf-val">—</span>
-        </div>
-        <div class="enf-status-row">
-          <span class="enf-status-label">kill order</span>
-          <span id="enf-kill-order" class="enf-val dim">—</span>
-        </div>
-      </div>
-
-      <!-- Kill Log -->
-      <div class="card" id="card-killlog">
-        <div class="card-title">KILL LOG <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· enforcer events</span></div>
-        <div id="killlog-list"><span class="dim">No enforcer events</span></div>
+        <div id="ramtier-content"><span class="dim">Loading paths…</span></div>
       </div>
 
       <!-- Services -->
       <div class="card" id="card-services">
-        <div class="card-title">SERVICES</div>
+        <div class="card-title">SERVICES <span class="dim" style="font-size:7px;font-weight:normal;letter-spacing:0">· sorted by kill order</span></div>
         <div id="services-list"><span class="dim">Waiting for data…</span></div>
-      </div>
-
-      <!-- RAM Tier -->
-      <div class="card" id="card-ramtier">
-        <div class="card-title">RAM TIER</div>
-        <div id="ramtier-content"><span class="dim">Loading paths…</span></div>
-      </div>
-
-      <!-- Benchmark Monitor -->
-      <div class="card card-wide" id="card-benchmark">
-        <div class="card-title">BENCHMARK <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live model performance</span></div>
-        <div id="bench-model-row" class="bench-model-row"><span class="dim">No model loaded</span></div>
-        <canvas id="bench-canvas" class="bench-canvas"></canvas>
-        <div id="bench-legend" class="bench-legend"></div>
-      </div>
-
-      <!-- Timeline (full width) — hidden until TIMELINE toggle enabled -->
-      <div class="card card-full" id="card-timeline" style="display:none">
-        <div class="card-title">
-          TIMELINE
-          <div id="view-toggles">
-            <button class="view-pill" data-view="vram">VRAM</button>
-            <button class="view-pill" data-view="ram">RAM</button>
-            <button class="view-pill" data-view="gpu">GPU</button>
-            <button class="view-pill" data-view="nvme">NVMe</button>
-            <button class="view-pill" data-view="sata">SATA</button>
-          </div>
-        </div>
-        <div id="timeline-legend"></div>
-        <div class="tl-container">
-          <div id="timeline-row-labels"></div>
-          <canvas id="timeline-canvas"></canvas>
-          <div class="tl-drag-handle" id="tl-drag-handle"></div>
-        </div>
       </div>
 
     </div>
@@ -164,100 +175,148 @@
 
   <!-- ══ TAB: CONFIG ════════════════════════════════════════ -->
   <div class="tab-content" id="tab-config">
-    <div id="config-coming-soon">
-      <div>Node graph configuration</div>
-      <div class="dim">coming soon</div>
-    </div>
+    <div class="tab-grid">
 
-    <!-- LiteGraph canvas — hidden but in DOM so node registration works -->
-    <div id="canvas-wrap" style="display:none">
-      <div id="canvas-nav">
-        <div id="group-filter">
-          <button class="grp-pill active" data-group="all">ALL</button>
-          <button class="grp-pill" data-group="oLLM">oLLM</button>
-          <button class="grp-pill" data-group="oAudio">oAudio</button>
-          <button class="grp-pill" data-group="Render">RENDER</button>
-        </div>
-        <div id="breadcrumb" class="hidden">
-          <button id="crumb-back">← BACK</button>
-          <span id="crumb-path"></span>
-        </div>
-      </div>
-      <canvas id="node-canvas"></canvas>
-    </div>
-
-    <!-- Config panel — hidden but in DOM for node config code -->
-    <div id="config-panel" style="display:none">
-      <div id="config-header">
-        <span id="config-node-name">Select a node or mode</span>
-        <span id="config-node-group"></span>
-        <span id="config-vram-est"></span>
-        <button id="config-paths-btn" class="mode-btn">&#9881; PATHS</button>
-      </div>
-
-      <div id="config-node" class="config-view">
-        <div id="config-body">
-          <div class="config-field">
-            <div class="config-row">
-              <label>Memory Mode</label>
-              <select id="cfg-memory">
-                <option value="vram">VRAM</option>
-                <option value="ram">RAM</option>
-                <option value="storage">Storage</option>
-              </select>
+      <!-- Canvas card (full width, constrained height) -->
+      <div class="card card-full" id="card-canvas">
+        <div id="canvas-wrap">
+          <div id="breadcrumb" class="hidden">
+            <button id="crumb-back">← BACK</button>
+            <span id="crumb-path"></span>
+            <div id="pull-model-wrap" class="hidden">
+              <input id="pull-model-input" type="text" placeholder="model name (e.g. llama3.2:1b)" />
+              <button id="pull-model-btn" class="grp-pill">PULL</button>
+              <span id="pull-model-status" class="dim"></span>
             </div>
-            <div class="config-sub hidden" id="sub-memory"></div>
           </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>Priority</label>
-              <input id="cfg-priority" type="number" min="1" max="5" value="1" style="width:44px" />
+          <canvas id="node-canvas"></canvas>
+          <div id="canvas-nav">
+            <div id="mode-filter">
+              <button class="grp-pill active" data-mode="all">ALL</button>
+              <!-- mode pills injected by JS -->
             </div>
-            <div class="config-sub hidden" id="sub-priority"></div>
-          </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>Bus Preference</label>
-              <select id="cfg-bus">
-                <option value="nvme">NVMe</option>
-                <option value="sata">SATA</option>
-                <option value="ram">RAM</option>
-              </select>
+            <div id="canvas-actions-center">
+              <button class="grp-pill" id="mode-strip-add">SAVE MODE</button>
+              <button class="grp-pill" id="mode-strip-save-tpl">SAVE TEMPLATE</button>
             </div>
-            <div class="config-sub hidden" id="sub-bus"></div>
-          </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>Limit Mode</label>
-              <select id="cfg-limit">
-                <option value="soft">Soft Warning</option>
-                <option value="hard">Hard Cutoff</option>
-              </select>
+            <div id="canvas-actions">
+              <button class="grp-pill add-svc-btn" id="add-svc-btn">+ NODE</button>
+              <button class="grp-pill add-mode-btn" id="add-mode-btn">+ MODE</button>
+              <button class="grp-pill scan-btn" id="scan-docker-btn">SCAN</button>
             </div>
-            <div class="config-sub hidden" id="sub-limit"></div>
+            <div id="discovery-dropdown" class="discovery-dropdown hidden"></div>
           </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>Boot with System</label>
-              <input id="cfg-boot" type="checkbox" />
-            </div>
-            <div class="config-sub hidden" id="sub-boot"></div>
+          <!-- Hamburger collapse for narrow canvas -->
+          <button id="canvas-hamburger" title="Menu">☰</button>
+          <div id="canvas-ham-menu">
+            <div class="ham-section" id="ham-filters"></div>
+            <div class="ham-section" id="ham-actions-center"></div>
+            <div class="ham-section" id="ham-actions-right"></div>
           </div>
-        </div>
-        <div id="mode-allocs" class="hidden">
-          <div class="section-label" style="padding: 6px 16px 2px">MODE ALLOCATIONS</div>
-          <div id="mode-allocs-body"></div>
         </div>
       </div>
 
-      <div id="config-paths" class="config-view hidden">
-        <div id="paths-body">
-          <div id="paths-section">
-            <span class="section-label">STORAGE</span>
-            <div id="paths-list"></div>
+      <!-- Connection map card (full width) -->
+      <div class="card card-full" id="card-connection-map">
+        <div class="card-title">CONNECTIONS</div>
+        <div id="connection-map"></div>
+      </div>
+
+      <!-- Mode strip card (full width) -->
+      <div class="card card-full" id="card-mode-strip">
+        <div id="mode-strip">
+          <div id="mode-strip-header">
+            <span class="mode-strip-label">MODES</span>
+            <div id="mode-strip-cards"></div>
           </div>
+          <div id="mode-strip-editor" class="hidden"></div>
+        </div>
+      </div>
+
+      <!-- Select a Node header + Resources card (full width) -->
+      <div class="card card-full" id="card-config-resources">
+        <div id="config-header">
+          <span id="config-node-name">Select a node</span>
+          <span id="config-node-group" class="cfg-tag"></span>
+          <span id="config-vram-est" class="cfg-tag"></span>
+          <span id="config-ram-est" class="cfg-tag"></span>
+          <span id="config-port" class="cfg-tag"></span>
+          <span id="config-status" class="cfg-tag"></span>
+          <div style="flex:1"></div>
+          <button id="config-paths-btn" class="mode-btn">PATHS</button>
+        </div>
+        <div id="config-node" class="config-view">
+          <div class="config-col">
+            <div class="col-label">RESOURCES</div>
+            <div class="config-field">
+              <div class="config-row">
+                <label>Memory Mode</label>
+                <select id="cfg-memory">
+                  <option value="vram">VRAM</option>
+                  <option value="ram">RAM</option>
+                  <option value="storage">Storage</option>
+                </select>
+              </div>
+              <div class="config-sub hidden" id="sub-memory"></div>
+            </div>
+            <div class="config-field">
+              <div class="config-row-inline">
+                <label>Priority</label>
+                <input id="cfg-priority" type="number" min="1" max="5" value="1" style="width:44px" />
+                <span id="cfg-priority-desc" class="sub-desc"></span>
+              </div>
+            </div>
+            <div class="config-field">
+              <div class="config-row">
+                <label>Bus</label>
+                <select id="cfg-bus">
+                  <option value="nvme">NVMe</option>
+                  <option value="sata">SATA</option>
+                  <option value="ram">RAM</option>
+                </select>
+              </div>
+              <div class="config-sub hidden" id="sub-bus"></div>
+            </div>
+            <div class="config-field">
+              <div class="config-row">
+                <label>Limit</label>
+                <select id="cfg-limit">
+                  <option value="soft">Soft Warning</option>
+                  <option value="hard">Hard Cutoff</option>
+                </select>
+              </div>
+              <div class="config-sub hidden" id="sub-limit"></div>
+            </div>
+            <div class="config-field">
+              <div class="config-row">
+                <label>Boot with System</label>
+                <input id="cfg-boot" type="checkbox" />
+              </div>
+              <div class="config-sub hidden" id="sub-boot"></div>
+            </div>
+          </div>
+          <div id="node-routing-body"></div>
+        </div>
+        <div id="config-mode" class="config-view hidden">
+          <div id="mode-config-body">
+            <div class="dim" style="font-size:9px">Select a mode</div>
+          </div>
+        </div>
+        <div id="config-paths" class="config-view hidden">
+          <div id="paths-body">
+            <div id="paths-section">
+              <span class="section-label">STORAGE</span>
+              <div id="paths-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Routing card (full width) -->
+      <div class="card card-full" id="card-config-routing">
+        <div class="card-title">ROUTING</div>
+        <div id="config-routing-body">
           <div id="routing-section">
-            <span class="section-label">ROUTING</span>
             <div class="config-field">
               <div class="config-row"><label>TTS URL</label><input class="route-input" id="route-tts-url" /></div>
             </div>
@@ -275,49 +334,12 @@
         </div>
       </div>
 
-      <div id="config-mode" class="config-view hidden">
-        <div id="config-body-mode">
-          <div class="config-field">
-            <div class="config-row">
-              <label>VRAM Budget</label>
-              <input id="mode-vram" type="range" min="0" max="20" step="0.5" value="10" />
-              <span id="mode-vram-val" class="slider-val">10 GB</span>
-            </div>
-          </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>RAM Budget</label>
-              <input id="mode-ram" type="range" min="0" max="62" step="1" value="32" />
-              <span id="mode-ram-val" class="slider-val">32 GB</span>
-            </div>
-          </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>Mode Priority</label>
-              <select id="mode-priority">
-                <option value="primary">Primary — resources first</option>
-                <option value="secondary">Secondary — yields to primary</option>
-              </select>
-            </div>
-          </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>Limit Mode</label>
-              <select id="mode-limit">
-                <option value="soft">Soft Warning</option>
-                <option value="hard">Hard Cutoff</option>
-              </select>
-            </div>
-            <div class="config-sub hidden" id="sub-mode-limit"></div>
-          </div>
-          <div class="config-field">
-            <div class="config-row">
-              <label>Services</label>
-              <span id="mode-services" class="sub-desc"></span>
-            </div>
-          </div>
-        </div>
+      <!-- Mode Allocations card (full width) -->
+      <div class="card card-full" id="card-config-allocs">
+        <div class="card-title">MODE ALLOCATIONS</div>
+        <div id="mode-allocs-body"></div>
       </div>
+
     </div>
   </div>
 
@@ -325,28 +347,27 @@
   <div class="tab-content" id="tab-advanced">
     <div class="tab-grid">
 
-      <!-- Storage Paths (full width) -->
-      <div class="card card-full" id="card-adv-paths">
-        <div class="card-title">STORAGE PATHS</div>
-        <div id="adv-paths-list"><span class="dim">Loading…</span></div>
+      <!-- Disk Map (full width) -->
+      <div class="card card-full" id="card-disk-map">
+        <div class="card-title">DISK MAP</div>
+        <div id="disk-map"><span class="dim">Loading…</span></div>
       </div>
 
-      <!-- Routing -->
-      <div class="card" id="card-adv-routing">
-        <div class="card-title">ROUTING</div>
-        <div class="config-field">
-          <div class="config-row"><label>TTS URL</label><input class="route-input" id="adv-route-tts-url" /></div>
-        </div>
-        <div class="config-field">
-          <div class="config-row"><label>Image Gen URL</label><input class="route-input" id="adv-route-imggen-url" /></div>
-        </div>
-        <div class="config-field">
-          <div class="config-row"><label>Ollama URL</label><input class="route-input" id="adv-route-ollama-url" /></div>
-        </div>
-        <div class="config-field">
-          <div class="config-row"><label>STT URL</label><input class="route-input" id="adv-route-stt-url" /></div>
-        </div>
-        <button id="adv-save-routing-btn" class="mode-btn" style="margin-top:8px">APPLY ROUTING</button>
+      <!-- Connection Map + Port Map (side by side) -->
+      <div class="card" id="card-conn-map">
+        <div class="card-title">CONNECTION MAP</div>
+        <div id="conn-map"><span class="dim">Loading…</span></div>
+      </div>
+
+      <div class="card" id="card-port-map">
+        <div class="card-title">PORT MAP</div>
+        <div id="port-map"><span class="dim">Loading…</span></div>
+      </div>
+
+      <!-- Volume Map (full width) -->
+      <div class="card card-full" id="card-vol-map">
+        <div class="card-title">VOLUME MAP</div>
+        <div id="vol-map"><span class="dim">Loading…</span></div>
       </div>
 
       <!-- Templates -->
@@ -356,34 +377,377 @@
         <button id="save-template" class="mode-btn" style="margin-top:8px">+ Save Current</button>
       </div>
 
-      <!-- API Reference -->
-      <div class="card" id="card-adv-api">
-        <div class="card-title">API REFERENCE</div>
-        <div class="api-entry"><span class="api-method ws">WS</span><span class="api-path">/ws — 1Hz push</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/system/status</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/vram</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/enforcement/status</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/modes</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">/modes/{n}/activate</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">/modes/{n}/deactivate</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/modes/{n}/check</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">/modes/{n}/reset</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/config/paths</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">/config/paths/{n}</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/config/routing</span></div>
-        <div class="api-entry"><span class="api-method get">GET</span><span class="api-path">/services</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">/services/{n}/start</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">/services/{n}/stop</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">:8002 /speak</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">:8002 /clone</span></div>
-        <div class="api-entry"><span class="api-method post">POST</span><span class="api-path">:8002 /convert</span></div>
+    </div>
+  </div>
+
+  <!-- ══ TAB: API ═══════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-api">
+    <div class="tab-grid">
+
+      <!-- How It Works Guide -->
+      <div class="card card-full" id="card-api-guide">
+        <div class="card-title">HOW IT WORKS</div>
+        <div id="api-guide-body"></div>
+      </div>
+
+      <!-- Live Topology — modes, nodes, connections -->
+      <div class="card card-full" id="card-api-topology">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          TOPOLOGY
+          <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">live modes, nodes &amp; connections · auto-refreshes every 5s</span>
+          <button class="grp-pill" id="topo-refresh-btn" onclick="fetchTopology()" style="margin-left:auto">REFRESH</button>
+        </div>
+        <div id="api-topology-body"><span class="dim">Loading...</span></div>
+      </div>
+
+      <!-- Auto-Generated Endpoints -->
+      <div class="card card-full" id="card-api-endpoints">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          ENDPOINTS
+          <div id="api-tag-filters"></div>
+          <button class="grp-pill" id="api-refresh-btn" style="margin-left:auto">REFRESH</button>
+        </div>
+        <div id="api-endpoints-body"><span class="dim">Loading OpenAPI spec...</span></div>
+      </div>
+
+      <!-- Live Monitor -->
+      <div class="card card-full" id="card-api-monitor">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          LIVE MONITOR
+          <input id="api-monitor-filter" type="text" placeholder="filter by path..." class="route-input" style="width:160px;font-size:9px;padding:2px 6px" />
+        </div>
+        <div class="api-monitor-layout">
+          <div class="api-monitor-stats" id="api-monitor-stats">
+            <div class="ams-row"><span class="ams-label">requests</span><span class="ams-val" id="ams-total">0</span></div>
+            <div class="ams-row"><span class="ams-label">avg latency</span><span class="ams-val" id="ams-latency">0 ms</span></div>
+            <div class="ams-row"><span class="ams-label">errors</span><span class="ams-val" id="ams-errors">0</span></div>
+            <div class="ams-row"><span class="ams-label">top endpoint</span><span class="ams-val ams-top" id="ams-top">—</span></div>
+          </div>
+          <div class="api-monitor-stream" id="api-monitor-stream"></div>
+        </div>
       </div>
 
     </div>
   </div>
 
+  <!-- ══ TAB: SETTINGS ═════════════════════════════════════ -->
+  <div class="tab-content" id="tab-settings">
+    <div class="tab-grid">
+
+      <!-- Layout & Display -->
+      <div class="card" id="card-settings-layout">
+        <div class="card-title">LAYOUT & DISPLAY</div>
+        <div class="settings-group">
+          <div class="settings-row">
+            <label>Config panels below canvas</label>
+            <label class="enf-master-toggle"><input type="checkbox" id="set-config-panels"><span class="enf-track"></span></label>
+          </div>
+          <div class="settings-row">
+            <label>Grid density</label>
+            <select id="set-grid-density">
+              <option value="compact">Compact</option>
+              <option value="normal" selected>Normal</option>
+              <option value="spacious">Spacious</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label>Font scale</label>
+            <input type="range" id="set-font-scale" min="70" max="130" step="5" value="100" />
+            <span class="slider-val" id="set-font-scale-val">100%</span>
+          </div>
+          <div class="settings-row">
+            <label>Text size</label>
+            <input type="range" id="set-text-size" min="9" max="18" step="1" value="13" />
+            <span class="slider-val" id="set-text-size-val">13px</span>
+          </div>
+          <div class="settings-row">
+            <label>Button size</label>
+            <select id="set-button-size">
+              <option value="small">Small</option>
+              <option value="normal" selected>Normal</option>
+              <option value="large">Large</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label>Canvas height</label>
+            <input type="range" id="set-canvas-height" min="200" max="900" step="50" value="500" />
+            <span class="slider-val" id="set-canvas-height-val">500px</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Theme -->
+      <div class="card" id="card-settings-theme">
+        <div class="card-title">THEME</div>
+        <div class="settings-group">
+          <div class="settings-row">
+            <label>Accent color</label>
+            <input type="color" id="set-accent-color" value="#e10600" />
+          </div>
+          <div class="settings-row">
+            <label>Background intensity</label>
+            <input type="range" id="set-bg-intensity" min="0" max="20" step="1" value="4" />
+            <span class="slider-val" id="set-bg-intensity-val">4</span>
+          </div>
+          <div class="settings-row">
+            <label>Animations</label>
+            <label class="enf-master-toggle"><input type="checkbox" id="set-animations" checked><span class="enf-track"></span></label>
+          </div>
+          <div class="settings-row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+            <span class="dim" style="font-size:9px;width:100%">Infographic Colors — storage tiers &amp; service groups</span>
+          </div>
+          <div class="settings-row">
+            <label>SATA</label>
+            <input type="color" id="set-tier-sata" value="#ffa726" />
+          </div>
+          <div class="settings-row">
+            <label>NVMe</label>
+            <input type="color" id="set-tier-nvme" value="#2196f3" />
+          </div>
+          <div class="settings-row">
+            <label>RAM</label>
+            <input type="color" id="set-tier-ram" value="#00e676" />
+          </div>
+          <div class="settings-row">
+            <label>VRAM</label>
+            <input type="color" id="set-tier-vram" value="#ab47bc" />
+          </div>
+          <div class="settings-row">
+            <label>LLM group</label>
+            <input type="color" id="set-grp-llm" value="#42a5f5" />
+          </div>
+          <div class="settings-row">
+            <label>Audio group</label>
+            <input type="color" id="set-grp-audio" value="#ffa726" />
+          </div>
+          <div class="settings-row">
+            <label>Render group</label>
+            <input type="color" id="set-grp-render" value="#66bb6a" />
+          </div>
+          <div class="settings-row">
+            <label>Control group</label>
+            <input type="color" id="set-grp-control" value="#78909c" />
+          </div>
+          <div class="settings-row">
+            <label>oLLMo mode</label>
+            <input type="color" id="set-mode-ollmo" value="#e879f9" />
+          </div>
+          <div class="settings-row">
+            <label>oAudio mode</label>
+            <input type="color" id="set-mode-oaudio" value="#22d3ee" />
+          </div>
+          <div class="settings-row">
+            <label>ComfyUI mode</label>
+            <input type="color" id="set-mode-comfyui" value="#facc15" />
+          </div>
+          <div class="settings-row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+            <span class="dim" style="font-size:9px;width:100%">Status &amp; Base Colors</span>
+          </div>
+          <div class="settings-row">
+            <label>Green (active)</label>
+            <input type="color" id="set-color-green" value="#00e676" />
+          </div>
+          <div class="settings-row">
+            <label>Yellow (warn)</label>
+            <input type="color" id="set-color-yellow" value="#ffd740" />
+          </div>
+          <div class="settings-row">
+            <label>Red (error)</label>
+            <input type="color" id="set-color-red" value="#ff1744" />
+          </div>
+          <div class="settings-row">
+            <label>Cyan</label>
+            <input type="color" id="set-color-cyan" value="#00d2be" />
+          </div>
+          <div class="settings-row">
+            <label>Purple</label>
+            <input type="color" id="set-color-purple" value="#a855f7" />
+          </div>
+          <div class="settings-row">
+            <label>Border</label>
+            <input type="color" id="set-color-border" value="#252525" />
+          </div>
+          <div class="settings-row">
+            <label>Text</label>
+            <input type="color" id="set-color-text" value="#e8e8e8" />
+          </div>
+          <div class="settings-row">
+            <label>Text dim</label>
+            <input type="color" id="set-color-text-dim" value="#555555" />
+          </div>
+          <div class="settings-row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+            <span class="dim" style="font-size:9px;width:100%">Tier Tinted Backgrounds</span>
+          </div>
+          <div class="settings-row">
+            <label>SATA bg</label>
+            <input type="color" id="set-tier-sata-bg" value="#2a1e00" />
+          </div>
+          <div class="settings-row">
+            <label>NVMe bg</label>
+            <input type="color" id="set-tier-nvme-bg" value="#0d1a2f" />
+          </div>
+          <div class="settings-row">
+            <label>RAM bg</label>
+            <input type="color" id="set-tier-ram-bg" value="#0a2a14" />
+          </div>
+          <div class="settings-row">
+            <label>VRAM bg</label>
+            <input type="color" id="set-tier-vram-bg" value="#1f0d2a" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Background Image -->
+      <div class="card" id="card-settings-bg">
+        <div class="card-title">BACKGROUND IMAGE</div>
+        <div class="settings-group">
+          <div class="settings-row">
+            <label>Image</label>
+            <div class="settings-file-group">
+              <button class="mode-btn" id="set-bg-upload-btn">UPLOAD</button>
+              <input type="file" id="set-bg-file" accept="image/*" style="display:none" />
+              <button class="mode-btn" id="set-bg-clear-btn">CLEAR</button>
+              <span class="dim" id="set-bg-filename">No image</span>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>Opacity</label>
+            <input type="range" id="set-bg-opacity" min="0" max="100" step="1" value="15" />
+            <span class="slider-val" id="set-bg-opacity-val">15%</span>
+          </div>
+          <div class="settings-row">
+            <label>Blur</label>
+            <input type="range" id="set-bg-blur" min="0" max="50" step="1" value="0" />
+            <span class="slider-val" id="set-bg-blur-val">0px</span>
+          </div>
+          <div class="settings-row">
+            <label>Size</label>
+            <select id="set-bg-size">
+              <option value="cover" selected>Cover</option>
+              <option value="contain">Contain</option>
+              <option value="auto">Original</option>
+              <option value="100% 100%">Stretch</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label>Position</label>
+            <select id="set-bg-position">
+              <option value="center center" selected>Center</option>
+              <option value="top center">Top</option>
+              <option value="bottom center">Bottom</option>
+              <option value="left center">Left</option>
+              <option value="right center">Right</option>
+            </select>
+          </div>
+          <div id="set-bg-preview" class="settings-bg-preview"></div>
+        </div>
+      </div>
+
+      <!-- Behavior -->
+      <div class="card" id="card-settings-behavior">
+        <div class="card-title">BEHAVIOR</div>
+        <div class="settings-group">
+          <div class="settings-row">
+            <label>Auto-show strips on load</label>
+            <label class="enf-master-toggle"><input type="checkbox" id="set-auto-strips"><span class="enf-track"></span></label>
+          </div>
+          <div class="settings-row">
+            <label>Poll interval</label>
+            <select id="set-poll-interval">
+              <option value="1000">1s</option>
+              <option value="3000" selected>3s</option>
+              <option value="5000">5s</option>
+              <option value="10000">10s</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Workflow Saves -->
+      <div class="card" id="card-settings-workflows">
+        <div class="card-title">WORKFLOW SAVES</div>
+        <div class="settings-group">
+          <div class="dim" style="font-size:9px;padding:2px 0">Save and restore complete workspace state: active modes, node layout, routing, and settings.</div>
+          <div class="settings-row">
+            <input type="text" id="set-wf-name" placeholder="Workflow name..." class="route-input" style="flex:1;max-width:200px" />
+            <button class="mode-btn" id="set-wf-save-btn">SAVE</button>
+          </div>
+          <div id="set-wf-list" class="settings-wf-list"><span class="dim">No saved workflows</span></div>
+        </div>
+      </div>
+
+      <!-- Data -->
+      <div class="card" id="card-settings-data">
+        <div class="card-title">DATA</div>
+        <div class="settings-group">
+          <div class="settings-row">
+            <button class="mode-btn" id="set-export-btn">EXPORT</button>
+            <button class="mode-btn" id="set-import-btn">IMPORT</button>
+            <input type="file" id="set-import-file" accept=".json" style="display:none" />
+            <button class="mode-btn accent" id="set-reset-btn">RESET</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ TAB: HELP ══════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-help">
+    <div class="tab-grid">
+      <div class="card card-full">
+        <div class="card-title">HELP</div>
+        <div class="dim" style="padding:20px 0;text-align:center">TBD</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Service Modal -->
+  <div id="add-svc-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">ADD SERVICE</div>
+      <div class="modal-body">
+        <label>Name<input id="svc-name" type="text" placeholder="my-service" /></label>
+        <label>Container<input id="svc-container" type="text" placeholder="docker container name" /></label>
+        <label>Port<input id="svc-port" type="number" value="0" min="0" /></label>
+        <label>Group
+          <select id="svc-group">
+            <option value="oLLM">oLLM</option>
+            <option value="oAudio">oAudio</option>
+            <option value="Render">Render</option>
+            <option value="Other" selected>Other</option>
+          </select>
+        </label>
+        <label>VRAM Est (GB)<input id="svc-vram" type="number" value="0" min="0" step="0.5" /></label>
+        <label>Description<input id="svc-desc" type="text" placeholder="optional" /></label>
+      </div>
+      <div class="modal-footer">
+        <button id="svc-cancel" class="mode-btn">CANCEL</button>
+        <button id="svc-submit" class="mode-btn accent">ADD</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Mode Modal -->
+  <div id="add-mode-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">CREATE MODE</div>
+      <div class="modal-body">
+        <label>Name<input id="mode-new-name" type="text" placeholder="e.g. oLLMo" /></label>
+        <label>Description<input id="mode-new-desc" type="text" placeholder="optional" /></label>
+        <label>VRAM Budget (GB)<input id="mode-new-budget" type="number" value="10" min="0" max="20" step="0.5" /></label>
+        <label>Services
+          <div id="mode-new-services" class="mode-svc-checklist"></div>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button id="mode-new-cancel" class="mode-btn">CANCEL</button>
+        <button id="mode-new-submit" class="mode-btn accent">CREATE</button>
+      </div>
+    </div>
+  </div>
+
   <script>const OLLMO_API = window.location.origin;</script>
-  <script src="panels/timeline.js"></script>
   <script src="extensions-loader.js"></script>
   <script src="app.js"></script>
 </body>

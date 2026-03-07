@@ -2,21 +2,29 @@
 oLLMo API — system orchestration.
 Port: 9000
 """
+import copy
 import json
 import os
+import re
 import asyncio
 import threading
+import time
 import psutil
 import httpx
 import docker as docker_sdk
+from functools import partial
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+
+# Docker container name rules: start with alnum, then alnum + underscore/period/hyphen
+_CONTAINER_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*$')
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 class _NoCacheStatic(StaticFiles):
     """StaticFiles that disables browser caching — keeps frontend changes instant."""
@@ -26,12 +34,76 @@ class _NoCacheStatic(StaticFiles):
             resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         return resp
 
+# ── Request monitor (middleware data) ──────────────────────────────────────────
+_req_log: deque = deque(maxlen=500)
+_req_stats = {"total": 0, "errors": 0, "latency_sum": 0.0, "endpoints": {}}
+_monitor_ws_clients: list = []
+
+# Paths to skip logging (static assets + the monitor endpoints themselves)
+_SKIP_PREFIXES = ("/api/monitor/", "/ext/", "/style.css", "/app.js", "/litegraph",
+                  "/panels/", "/nodes/", "/extensions-loader", "/favicon")
+
+
+class RequestLogMiddleware:
+    """ASGI middleware — logs every API request with timing."""
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if any(path.startswith(p) for p in _SKIP_PREFIXES) or "." in path.split("/")[-1]:
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "WS" if scope["type"] == "websocket" else "?")
+        t0 = time.monotonic()
+        status_code = 0
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message.get("type") == "http.response.start":
+                status_code = message.get("status", 0)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
+            entry = {
+                "ts": datetime.now().strftime("%H:%M:%S"),
+                "method": method,
+                "path": path,
+                "status": status_code,
+                "latency_ms": latency_ms,
+            }
+            _req_log.append(entry)
+            _req_stats["total"] += 1
+            _req_stats["latency_sum"] += latency_ms
+            if status_code >= 400:
+                _req_stats["errors"] += 1
+            _req_stats["endpoints"][path] = _req_stats["endpoints"].get(path, 0) + 1
+
+            # Push to all monitor WS clients
+            for ws in list(_monitor_ws_clients):
+                try:
+                    await ws.send_json(entry)
+                except Exception:
+                    try:
+                        _monitor_ws_clients.remove(ws)
+                    except ValueError:
+                        pass
+
+
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.vram import get_vram_usage, get_gpu_utilization
-from core.docker_control import get_status, start, stop, get_logs, all_status
-from core.paths import get_all_paths, repoint, get_storage_stats
+from core.docker_control import get_status, start, stop, get_logs, all_status, apply_resource_limits, remove_resource_limits, discover_unregistered
+from core.paths import get_all_paths, repoint, get_storage_stats, heal_dangling
 from core.resources import projected_vram, check_alerts, get_system_accounting
 from core.enforcer import enforcement_loop, active_modes as _active_modes, kill_log as _kill_log, register_manual_stop
 import core.enforcer as _enforcer
@@ -71,7 +143,67 @@ async def _rvc_startup_refresh():
 
 def _persist_active_modes():
     """Write current active_modes to disk so it survives restarts."""
-    ACTIVE_MODES_FILE.write_text(json.dumps(list(_active_modes)))
+    _atomic_write(ACTIVE_MODES_FILE, json.dumps(list(_active_modes)))
+
+
+def _profiles_cfg() -> dict:
+    if PROFILES_CFG_FILE.exists():
+        return json.loads(PROFILES_CFG_FILE.read_text())
+    return {"active": None, "profiles": {}}
+
+
+def _save_profiles(cfg: dict):
+    _atomic_write(PROFILES_CFG_FILE, json.dumps(cfg, indent=2))
+
+
+def _apply_profile(profile: dict, profile_name: str):
+    """Apply a hardware profile: set VRAM ceiling + Docker cgroup limits."""
+    _enforcer.vram_virtual_ceiling_gb = profile.get("vram_gb") or None
+
+    services = _services_cfg()
+    running = []
+    for svc_name, svc in services.items():
+        ctr = svc.get("container")
+        if not ctr:
+            continue
+        try:
+            s = get_status(ctr)
+            if s.get("status") == "running":
+                running.append((svc_name, svc, ctr))
+        except Exception:
+            pass
+
+    if not running:
+        return
+
+    profile_ram = profile.get("ram_gb", 0)
+    profile_cpu = profile.get("cpu_cores", 0)
+
+    # Proportional RAM per service
+    total_svc_ram = sum(s.get("ram_est_gb", 1.0) for _, s, _ in running) or 1.0
+    cpu_per = max(1, profile_cpu // len(running)) if profile_cpu and running else 0
+
+    for svc_name, svc, ctr in running:
+        svc_ram = svc.get("ram_est_gb", 1.0)
+        mem_gb = round(max(0.25, (svc_ram / total_svc_ram) * profile_ram), 2) if profile_ram else 0
+        apply_resource_limits(ctr, mem_gb, cpu_per)
+
+
+def _deactivate_profile():
+    """Clear VRAM ceiling + remove all Docker cgroup limits."""
+    _enforcer.vram_virtual_ceiling_gb = None
+
+    services = _services_cfg()
+    for svc_name, svc in services.items():
+        ctr = svc.get("container")
+        if not ctr:
+            continue
+        try:
+            s = get_status(ctr)
+            if s.get("status") == "running":
+                remove_resource_limits(ctr)
+        except Exception:
+            pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,6 +214,27 @@ async def lifespan(app: FastAPI):
                 _active_modes.add(m)
         except Exception:
             pass
+
+    # Restore active profile from last session
+    try:
+        pcfg = _profiles_cfg()
+        active_name = pcfg.get("active")
+        if active_name and active_name in pcfg.get("profiles", {}):
+            _apply_profile(pcfg["profiles"][active_name], active_name)
+    except Exception:
+        pass
+
+    # Heal dangling symlinks (create missing target dirs so Docker mounts don't fail)
+    try:
+        paths_cfg = json.loads(PATHS_CFG_FILE.read_text())
+        healed = heal_dangling(paths_cfg)
+        if healed:
+            print(f"[oAIo] Healed {len(healed)} dangling symlink targets: {healed}")
+    except Exception:
+        pass
+
+    # Enable enforcement on startup
+    _enforcer.enforcer_enabled = True
 
     asyncio.create_task(_rvc_startup_refresh())
     task = asyncio.create_task(
@@ -102,6 +255,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestLogMiddleware)
 
 CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
 TEMPLATES_DIR     = Path(__file__).parent.parent.parent / "templates"
@@ -111,6 +265,14 @@ MODES_CFG_FILE    = CONFIG_DIR / "modes.json"
 NODES_CFG_FILE    = CONFIG_DIR / "nodes.json"
 SERVICES_CFG_FILE = CONFIG_DIR / "services.json"
 ACTIVE_MODES_FILE = CONFIG_DIR / "active_modes.json"
+PROFILES_CFG_FILE = CONFIG_DIR / "profiles.json"
+
+def _atomic_write(path: Path, data: str):
+    """Write JSON atomically via temp file + rename to prevent corruption."""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(data)
+    tmp.replace(path)
+
 
 # Always read fresh — never cache; services/modes are mutable at runtime
 def _services_cfg() -> dict:
@@ -119,12 +281,21 @@ def _services_cfg() -> dict:
 def _modes() -> dict:
     return json.loads(MODES_CFG_FILE.read_text())["modes"]
 
-# Snapshot of modes at startup — used by reset endpoint
-_MODES_SNAPSHOT: dict = json.loads(MODES_CFG_FILE.read_text())["modes"]
+# Snapshot of modes — updated on every write so reset restores last-saved state
+_MODES_SNAPSHOT: dict = copy.deepcopy(json.loads(MODES_CFG_FILE.read_text())["modes"])
 
 
+def _write_modes(cfg: dict):
+    """Write modes config and update the reset snapshot."""
+    global _MODES_SNAPSHOT
+    _atomic_write(MODES_CFG_FILE, json.dumps(cfg, indent=2))
+    _MODES_SNAPSHOT = copy.deepcopy(cfg["modes"])
 
-@app.get("/system/status")
+# ── Config-file lock (prevents read-modify-write races) ──────────────────────
+_config_lock = asyncio.Lock()
+
+
+@app.get("/system/status", tags=["System"])
 def system_status():
     vram = get_vram_usage()
     gpu  = get_gpu_utilization()
@@ -142,17 +313,17 @@ def system_status():
     }
 
 
-@app.get("/vram")
+@app.get("/vram", tags=["System"])
 def vram_status():
     return get_vram_usage()
 
 
-@app.get("/services")
+@app.get("/services", tags=["Services"])
 def list_services():
     return _services_cfg()
 
 
-@app.post("/services/{name}/start")
+@app.post("/services/{name}/start", tags=["Services"])
 def start_service(name: str):
     services = _services_cfg()
     if name not in services:
@@ -160,7 +331,7 @@ def start_service(name: str):
     return start(services[name]["container"])
 
 
-@app.post("/services/{name}/stop")
+@app.post("/services/{name}/stop", tags=["Services"])
 def stop_service(name: str):
     services = _services_cfg()
     if name not in services:
@@ -172,7 +343,7 @@ def stop_service(name: str):
     return {"name": ctr, "action": "stopping", "ok": True}
 
 
-@app.get("/services/{name}/status")
+@app.get("/services/{name}/status", tags=["Services"])
 def service_status(name: str):
     services = _services_cfg()
     if name not in services:
@@ -180,7 +351,7 @@ def service_status(name: str):
     return get_status(services[name]["container"])
 
 
-@app.get("/services/{name}/logs")
+@app.get("/services/{name}/logs", tags=["Services"])
 def service_logs(name: str, lines: int = 50):
     services = _services_cfg()
     if name not in services:
@@ -188,12 +359,12 @@ def service_logs(name: str, lines: int = 50):
     return {"logs": get_logs(services[name]["container"], lines)}
 
 
-@app.get("/modes")
+@app.get("/modes", tags=["Modes"])
 def list_modes():
     return _modes()
 
 
-@app.get("/modes/{name}/check")
+@app.get("/modes/{name}/check", tags=["Modes"])
 def check_mode(name: str):
     """Pre-flight VRAM check — call before activating to see if it fits."""
     modes = _modes()
@@ -202,7 +373,7 @@ def check_mode(name: str):
     return projected_vram(modes[name], _services_cfg())
 
 
-@app.post("/modes/{name}/activate")
+@app.post("/modes/{name}/activate", tags=["Modes"])
 def activate_mode(name: str, force: bool = False):
     modes    = _modes()
     services = _services_cfg()
@@ -218,19 +389,39 @@ def activate_mode(name: str, force: bool = False):
             "projection": projection,
         }
 
-    active  = set(mode["services"])
+    new_svc_set = set(mode["services"])
+
+    # ── Displacement: stop old-mode services not needed by the new mode ──────
+    old_svc_set: set[str] = set()
+    for active_name in list(_active_modes):
+        old_mode = modes.get(active_name)
+        if old_mode:
+            old_svc_set.update(old_mode.get("services", []))
+    displaced = old_svc_set - new_svc_set
+
     results = []
-    for svc_name, svc in services.items():
+    for svc_name in displaced:
+        svc = services.get(svc_name)
+        if not svc:
+            continue
         ctr = svc.get("container")
         if not ctr:
             continue
-        if svc_name in active:
-            results.append(start(ctr))
-        else:
-            register_manual_stop(ctr, svc_name, svc.get("priority", 3))
-            threading.Thread(target=stop, args=(ctr,), daemon=True).start()
-            results.append({"name": ctr, "action": "stopping", "ok": True})
+        register_manual_stop(ctr, svc_name, svc.get("priority", 3))
+        stop(ctr)
+        results.append({"name": ctr, "action": "stopped", "ok": True})
 
+    # ── Start new mode's services ────────────────────────────────────────────
+    for svc_name in mode["services"]:
+        svc = services.get(svc_name)
+        if not svc:
+            continue
+        ctr = svc.get("container")
+        if not ctr:
+            continue
+        results.append(start(ctr))
+
+    _active_modes.clear()
     _active_modes.add(name)
     _persist_active_modes()
 
@@ -242,14 +433,14 @@ def activate_mode(name: str, force: bool = False):
     }
 
 
-@app.post("/modes/{name}/deactivate")
+@app.post("/modes/{name}/deactivate", tags=["Modes"])
 def deactivate_mode(name: str):
     _active_modes.discard(name)
     _persist_active_modes()
     return {"deactivated": name, "active_modes": list(_active_modes)}
 
 
-@app.post("/emergency/kill")
+@app.post("/emergency/kill", tags=["Enforcement"])
 def emergency_kill():
     """Stop all managed containers immediately, clear all active modes."""
     services = _services_cfg()
@@ -266,7 +457,7 @@ def emergency_kill():
     return {"killed": results, "active_modes": []}
 
 
-@app.get("/modes/{name}/allocations")
+@app.get("/modes/{name}/allocations", tags=["Modes"])
 def get_allocations(name: str):
     modes = _modes()
     if name not in modes:
@@ -277,43 +468,121 @@ def get_allocations(name: str):
     }
 
 
-@app.post("/modes/{name}/allocations/{service}")
-def set_allocation(name: str, service: str, body: dict):
+@app.post("/modes/{name}/allocations/{service}", tags=["Modes"])
+async def set_allocation(name: str, service: str, body: dict):
     """body: {"gb": 7.5} — update one service's VRAM allocation within a mode."""
-    cfg = json.loads(MODES_CFG_FILE.read_text())
-    if name not in cfg["modes"]:
-        return {"error": f"Unknown mode: {name}"}
-    gb = body.get("gb")
-    if gb is None:
-        return {"error": "gb is required"}
-    cfg["modes"][name].setdefault("allocations", {})[service] = round(float(gb), 1)
-    MODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
-    return projected_vram(cfg["modes"][name], _services_cfg())
+    async with _config_lock:
+        cfg = json.loads(MODES_CFG_FILE.read_text())
+        if name not in cfg["modes"]:
+            return {"error": f"Unknown mode: {name}"}
+        gb = body.get("gb")
+        if gb is None:
+            return {"error": "gb is required"}
+        cfg["modes"][name].setdefault("allocations", {})[service] = round(float(gb), 1)
+        _write_modes(cfg)
+        return projected_vram(cfg["modes"][name], _services_cfg())
 
 
-@app.post("/modes/{name}/budget")
-def set_budget(name: str, body: dict):
+@app.post("/modes/{name}/budget", tags=["Modes"])
+async def set_budget(name: str, body: dict):
     """body: {"gb": 11} — update a mode's VRAM ceiling."""
-    cfg = json.loads(MODES_CFG_FILE.read_text())
-    if name not in cfg["modes"]:
-        return {"error": f"Unknown mode: {name}"}
-    gb = body.get("gb")
-    if gb is None:
-        return {"error": "gb is required"}
-    cfg["modes"][name]["vram_budget_gb"] = round(float(gb), 1)
-    MODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
-    return projected_vram(cfg["modes"][name], _services_cfg())
+    async with _config_lock:
+        cfg = json.loads(MODES_CFG_FILE.read_text())
+        if name not in cfg["modes"]:
+            return {"error": f"Unknown mode: {name}"}
+        gb = body.get("gb")
+        if gb is None:
+            return {"error": "gb is required"}
+        cfg["modes"][name]["vram_budget_gb"] = round(float(gb), 1)
+        _write_modes(cfg)
+        return projected_vram(cfg["modes"][name], _services_cfg())
 
 
-@app.get("/templates")
+@app.post("/modes", tags=["Modes"])
+async def create_mode(body: dict):
+    """Create a new mode. body: {name, description?, services[], vram_budget_gb?}"""
+    name = body.get("name", "").strip()
+    if not name:
+        return {"error": "name is required"}
+    key = name.lower().replace(" ", "-")
+    async with _config_lock:
+        cfg = json.loads(MODES_CFG_FILE.read_text())
+        if key in cfg["modes"]:
+            return {"error": f"Mode '{key}' already exists"}
+        max_id = max((m.get("id", 0) for m in cfg["modes"].values()), default=0)
+        services = body.get("services", [])
+        known = set(_services_cfg().keys())
+        unknown = set(services) - known
+        if unknown:
+            return {"error": f"Unknown services: {', '.join(sorted(unknown))}"}
+        budget = round(float(body.get("vram_budget_gb", 10)), 1)
+        cfg["modes"][key] = {
+            "id": max_id + 1,
+            "name": name,
+            "description": body.get("description", ""),
+            "services": services,
+            "vram_budget_gb": budget,
+            "allocations": {s: 0 for s in services},
+            "boot_image": None,
+        }
+        _write_modes(cfg)
+        return {"created": key, "mode": cfg["modes"][key]}
+
+
+@app.delete("/modes/{name}", tags=["Modes"])
+async def delete_mode(name: str):
+    """Remove a mode from modes.json."""
+    async with _config_lock:
+        cfg = json.loads(MODES_CFG_FILE.read_text())
+        if name not in cfg["modes"]:
+            return {"error": f"Unknown mode: {name}"}
+        _active_modes.discard(name)
+        _persist_active_modes()
+        del cfg["modes"][name]
+        _write_modes(cfg)
+        return {"deleted": name}
+
+
+@app.patch("/modes/{name}", tags=["Modes"])
+async def patch_mode(name: str, body: dict):
+    """Update mode fields: name, description, services, vram_budget_gb."""
+    async with _config_lock:
+        cfg = json.loads(MODES_CFG_FILE.read_text())
+        if name not in cfg["modes"]:
+            return {"error": f"Unknown mode: {name}"}
+        mode = cfg["modes"][name]
+        if "name" in body:
+            mode["name"] = body["name"]
+        if "description" in body:
+            mode["description"] = body["description"]
+        if "services" in body:
+            known = set(_services_cfg().keys())
+            unknown = set(body["services"]) - known
+            if unknown:
+                return {"error": f"Unknown services: {', '.join(sorted(unknown))}"}
+            mode["services"] = body["services"]
+            # ensure allocations has entries for all services
+            for s in body["services"]:
+                mode.setdefault("allocations", {}).setdefault(s, 0)
+        if "vram_budget_gb" in body:
+            mode["vram_budget_gb"] = round(float(body["vram_budget_gb"]), 1)
+        _write_modes(cfg)
+        return {"updated": name, "mode": mode}
+
+
+@app.get("/templates", tags=["Templates"])
 def list_templates():
     if not TEMPLATES_DIR.exists():
         return []
     return [f.stem for f in TEMPLATES_DIR.glob("*.json")]
 
 
-@app.post("/templates/save")
+@app.post("/templates/save", tags=["Templates"])
 def save_template(name: str, description: str = ""):
+    TEMPLATES_DIR.mkdir(exist_ok=True)
+    path = (TEMPLATES_DIR / f"{name}.json").resolve()
+    if not str(path).startswith(str(TEMPLATES_DIR.resolve())):
+        return {"error": "Invalid template name"}
     template = {
         "name": name,
         "description": description,
@@ -323,14 +592,15 @@ def save_template(name: str, description: str = ""):
             if cfg.get("container")
         }
     }
-    TEMPLATES_DIR.mkdir(exist_ok=True)
-    (TEMPLATES_DIR / f"{name}.json").write_text(json.dumps(template, indent=2))
+    _atomic_write(path, json.dumps(template, indent=2))
     return {"saved": name}
 
 
-@app.post("/templates/{name}/load")
+@app.post("/templates/{name}/load", tags=["Templates"])
 def load_template(name: str):
-    path = TEMPLATES_DIR / f"{name}.json"
+    path = (TEMPLATES_DIR / f"{name}.json").resolve()
+    if not str(path).startswith(str(TEMPLATES_DIR.resolve())):
+        return {"error": "Invalid template name"}
     if not path.exists():
         return {"error": f"Template not found: {name}"}
     template = json.loads(path.read_text())
@@ -348,7 +618,7 @@ def load_template(name: str):
 
 # ── Capability endpoints (Tier 3 sub-nodes) ──────────────────────────────────
 
-@app.get("/services/ollama/models")
+@app.get("/services/ollama/models", tags=["Ollama"])
 async def ollama_models():
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -359,7 +629,7 @@ async def ollama_models():
         return {"error": str(e)}
 
 
-@app.post("/services/ollama/models/{name}/load")
+@app.post("/services/ollama/models/{name}/load", tags=["Ollama"])
 async def load_ollama_model(name: str):
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -370,7 +640,37 @@ async def load_ollama_model(name: str):
         return {"error": str(e)}
 
 
-@app.get("/services/rvc/models")
+@app.post("/services/ollama/models/pull", tags=["Ollama"])
+async def pull_ollama_model(body: dict):
+    name = body.get("name", "").strip()
+    if not name:
+        return {"error": "name is required"}
+    try:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            r = await client.post(f"{OLLAMA_URL}/api/pull",
+                json={"name": name, "stream": False})
+            data = r.json()
+            if data.get("error"):
+                return {"error": data["error"]}
+            return {"pulled": name, "status": data.get("status", "success")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.delete("/services/ollama/models/{name}", tags=["Ollama"])
+async def delete_ollama_model(name: str):
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.delete(f"{OLLAMA_URL}/api/delete",
+                json={"name": name})
+            if r.status_code == 200:
+                return {"deleted": name}
+            return {"error": f"Failed to delete: {r.text}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/services/rvc/models", tags=["RVC"])
 def rvc_models():
     try:
         client = docker_sdk.from_env()
@@ -383,7 +683,7 @@ def rvc_models():
         return {"error": str(e)}
 
 
-@app.post("/services/rvc/models/{name}/activate")
+@app.post("/services/rvc/models/{name}/activate", tags=["RVC"])
 async def activate_rvc_model(name: str):
     """
     Switch RVC active voice model via the Gradio API.
@@ -406,7 +706,7 @@ async def activate_rvc_model(name: str):
         return {"error": str(e)}
 
 
-@app.get("/services/comfyui/workflows")
+@app.get("/services/comfyui/workflows", tags=["ComfyUI"])
 def comfyui_workflows():
     workflows_path = COMFYUI_USER_PATH / "default" / "workflows"
     if not workflows_path.exists():
@@ -417,13 +717,13 @@ def comfyui_workflows():
 
 # ── Paths & Routing config endpoints ─────────────────────────────────────────
 
-@app.get("/config/paths")
+@app.get("/config/paths", tags=["Config"])
 def config_paths_list():
     cfg = json.loads(PATHS_CFG_FILE.read_text())
     return get_all_paths(cfg)
 
 
-@app.post("/config/paths")
+@app.post("/config/paths", tags=["Config"])
 def config_paths_add(body: dict):
     """body: {"name": "mymodels", "label": "My Models", "target": "/data/models", "containers": ["comfyui"]}"""
     name   = body.get("name", "").strip().lower().replace(" ", "-")
@@ -437,12 +737,12 @@ def config_paths_add(body: dict):
         return {"error": f"Path '{name}' already exists — use POST /config/paths/{name} to repoint"}
     link = f"/mnt/oaio/{name}"
     cfg[name] = {"label": label, "link": link, "default_target": target, "containers": ctrs}
-    PATHS_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    _atomic_write(PATHS_CFG_FILE, json.dumps(cfg, indent=2))
     result = repoint(link, target)
     return {**result, "name": name, "label": label, "containers": ctrs}
 
 
-@app.delete("/config/paths/{name}")
+@app.delete("/config/paths/{name}", tags=["Config"])
 def config_paths_delete(name: str):
     cfg = json.loads(PATHS_CFG_FILE.read_text())
     if name not in cfg:
@@ -451,11 +751,11 @@ def config_paths_delete(name: str):
     if link.is_symlink():
         link.unlink()
     del cfg[name]
-    PATHS_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    _atomic_write(PATHS_CFG_FILE, json.dumps(cfg, indent=2))
     return {"deleted": name}
 
 
-@app.post("/config/paths/{name}")
+@app.post("/config/paths/{name}", tags=["Config"])
 def config_paths_set(name: str, body: dict):
     """
     body: {"target": "/new/path"} — absolute path, or:
@@ -496,45 +796,75 @@ def config_paths_set(name: str, body: dict):
     return repoint(link, new_target)
 
 
-@app.get("/config/routing")
+@app.get("/config/routing", tags=["Config"])
 def config_routing_get():
     return json.loads(ROUTING_CFG_FILE.read_text())
 
 
-@app.post("/config/routing")
+@app.post("/config/routing", tags=["Config"])
 def config_routing_set(body: dict):
     current = json.loads(ROUTING_CFG_FILE.read_text())
     current.update({k: v for k, v in body.items() if k in current})
-    ROUTING_CFG_FILE.write_text(json.dumps(current, indent=2))
+    _atomic_write(ROUTING_CFG_FILE, json.dumps(current, indent=2))
     return current
 
 
-@app.get("/config/nodes")
+@app.get("/config/nodes", tags=["Config"])
 def config_nodes_get():
     return json.loads(NODES_CFG_FILE.read_text())
 
 
-@app.post("/config/nodes")
+@app.post("/config/nodes", tags=["Config"])
 def config_nodes_set(body: dict):
     cfg = json.loads(NODES_CFG_FILE.read_text())
     cfg.update(body)
-    NODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
+    _atomic_write(NODES_CFG_FILE, json.dumps(cfg, indent=2))
     return cfg
 
 
-@app.get("/config/storage/stats")
+@app.get("/config/storage/stats", tags=["Config"])
 def config_storage_stats():
     return get_storage_stats()
 
 
-@app.get("/benchmark/history")
+@app.get("/benchmark/history", tags=["System"])
 def benchmark_history():
     return list(_bench_history)
+
+
+def _build_kill_order(svcs: dict) -> list:
+    """Build kill-order list from services config + live container status."""
+    candidates = []
+    try:
+        dc = _docker_client()
+        for svc_name, svc in svcs.items():
+            ctr = svc.get("container")
+            if not ctr:
+                continue
+            limit_mode = svc.get("limit_mode", "soft")
+            try:
+                c = dc.containers.get(ctr)
+                status = c.status
+            except Exception:
+                status = "unknown"
+            candidates.append({
+                "service":    svc_name,
+                "container":  ctr,
+                "priority":   svc.get("priority", 3),
+                "limit_mode": limit_mode,
+                "status":     status,
+                "would_kill": limit_mode == "hard" and status == "running",
+            })
+        candidates.sort(key=lambda x: -x["priority"])
+    except Exception:
+        pass
+    return candidates
 
 
 @app.websocket("/ws")
 async def ws_status(websocket: WebSocket):
     await websocket.accept()
+    loop = asyncio.get_event_loop()
     try:
         while True:
             vram    = get_vram_usage()
@@ -552,9 +882,17 @@ async def ws_status(websocket: WebSocket):
                 "models":    [m["name"] for m in loaded],
             })
 
-            from core.resources import WARN_THRESHOLD, HARD_THRESHOLD
+            from core.resources import WARN_THRESHOLD, HARD_THRESHOLD, get_effective_vram_total
             pct = vram.get("percent", 0) / 100
-            vram_total = vram.get("total_gb", 21)
+            vram_total = get_effective_vram_total()
+            # Profile state for WS
+            _pcfg = _profiles_cfg()
+            _active_profile_name = _pcfg.get("active")
+
+            # Run blocking Docker calls in executor to avoid stalling the event loop
+            svc_statuses = await loop.run_in_executor(None, all_status, svcs)
+            kill_order   = await loop.run_in_executor(None, _build_kill_order, svcs)
+
             payload = {
                 "vram":           vram,
                 "gpu":            gpu,
@@ -562,18 +900,27 @@ async def ws_status(websocket: WebSocket):
                 "ram_tier":       ram_tier.get_usage(),
                 "accounting":     acct,
                 "active_modes":   list(_active_modes),
-                "services":       all_status(svcs),
+                "services":       svc_statuses,
                 "alerts":         check_alerts(),
                 "kill_log":       list(_kill_log)[:10],
                 "ollama_loaded":  loaded,
                 "enforcement": {
-                    "enabled":        _enforcer.enforcer_enabled,
-                    "active_modes":   list(_active_modes),
-                    "enforcing":      _enforcer.enforcer_enabled and pct >= HARD_THRESHOLD and bool(_active_modes),
-                    "warn_threshold": WARN_THRESHOLD,
-                    "hard_threshold": HARD_THRESHOLD,
-                    "warn_at_gb":     round(vram_total * WARN_THRESHOLD, 1),
-                    "hard_at_gb":     round(vram_total * HARD_THRESHOLD, 1),
+                    "enabled":           _enforcer.enforcer_enabled,
+                    "active_modes":      list(_active_modes),
+                    "enforcing":         _enforcer.enforcer_enabled and pct >= HARD_THRESHOLD and bool(_active_modes),
+                    "warn_threshold":    WARN_THRESHOLD,
+                    "hard_threshold":    HARD_THRESHOLD,
+                    "warn_at_gb":        round(vram_total * WARN_THRESHOLD, 1),
+                    "hard_at_gb":        round(vram_total * HARD_THRESHOLD, 1),
+                    "vram_ceiling_gb":   _enforcer.vram_virtual_ceiling_gb,
+                    "real_total_gb":     vram.get("total_gb", 20),
+                    "effective_total_gb": round(vram_total, 1),
+                    "kill_order":        kill_order,
+                },
+                "profile": {
+                    "active":          _active_profile_name is not None,
+                    "name":            _active_profile_name,
+                    "vram_ceiling_gb": _enforcer.vram_virtual_ceiling_gb,
                 },
             }
             await websocket.send_json(payload)
@@ -582,81 +929,68 @@ async def ws_status(websocket: WebSocket):
         pass
 
 
-@app.get("/config/services")
+@app.get("/config/services", tags=["Config"])
 def config_services_get():
     return json.loads(SERVICES_CFG_FILE.read_text())["services"]
 
 
-@app.post("/config/services")
-def config_services_add(body: dict):
+@app.post("/config/services", tags=["Config"])
+async def config_services_add(body: dict):
     name = body.get("name", "").strip().lower().replace(" ", "-")
     if not name:
         return {"error": "name is required"}
-    cfg = json.loads(SERVICES_CFG_FILE.read_text())
-    if name in cfg["services"]:
-        return {"error": f"Service '{name}' already registered"}
-    cfg["services"][name] = {
-        "container":    body.get("container", name),
-        "port":         body.get("port", 0),
-        "vram_est_gb":  body.get("vram_est_gb", 0),
-        "ram_est_gb":   body.get("ram_est_gb", 0),
-        "priority":     body.get("priority", 3),
-        "limit_mode":   body.get("limit_mode", "soft"),
-        "group":        body.get("group", "Other"),
-        "description":  body.get("description", ""),
-        "capabilities": body.get("capabilities", []),
-    }
-    SERVICES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
-    return cfg["services"][name]
+    if not _CONTAINER_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail=f"Invalid service name: must match {_CONTAINER_NAME_RE.pattern}")
+    container = body.get("container", name)
+    if not _CONTAINER_NAME_RE.match(container):
+        raise HTTPException(status_code=400, detail=f"Invalid container name: must match {_CONTAINER_NAME_RE.pattern}")
+    async with _config_lock:
+        cfg = json.loads(SERVICES_CFG_FILE.read_text())
+        if name in cfg["services"]:
+            return {"error": f"Service '{name}' already registered"}
+        cfg["services"][name] = {
+            "container":    container,
+            "port":         body.get("port", 0),
+            "vram_est_gb":  body.get("vram_est_gb", 0),
+            "ram_est_gb":   body.get("ram_est_gb", 0),
+            "priority":     body.get("priority", 3),
+            "limit_mode":   body.get("limit_mode", "soft"),
+            "group":        body.get("group", "Other"),
+            "description":  body.get("description", ""),
+            "capabilities": body.get("capabilities", []),
+        }
+        _atomic_write(SERVICES_CFG_FILE, json.dumps(cfg, indent=2))
+        return cfg["services"][name]
 
 
-@app.patch("/config/services/{name}")
-def config_services_patch(name: str, body: dict):
-    cfg = json.loads(SERVICES_CFG_FILE.read_text())
-    if name not in cfg["services"]:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Service '{name}' not found")
-    ALLOWED = {"priority", "limit_mode", "vram_est_gb", "ram_est_gb", "auto_restore",
-               "description", "group", "boot_with_system"}
-    for k, v in body.items():
-        if k in ALLOWED:
-            cfg["services"][name][k] = v
-    SERVICES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
-    return cfg["services"][name]
+@app.patch("/config/services/{name}", tags=["Config"])
+async def config_services_patch(name: str, body: dict):
+    async with _config_lock:
+        cfg = json.loads(SERVICES_CFG_FILE.read_text())
+        if name not in cfg["services"]:
+            raise HTTPException(status_code=404, detail=f"Service '{name}' not found")
+        ALLOWED = {"priority", "limit_mode", "vram_est_gb", "ram_est_gb", "auto_restore",
+                   "description", "group", "boot_with_system", "memory_mode", "bus_preference"}
+        for k, v in body.items():
+            if k in ALLOWED:
+                cfg["services"][name][k] = v
+        _atomic_write(SERVICES_CFG_FILE, json.dumps(cfg, indent=2))
+        return cfg["services"][name]
 
 
-@app.get("/enforcement/status")
+@app.get("/docker/discover", tags=["Docker"])
+def docker_discover():
+    """List Docker containers on oaio-net not registered in services.json."""
+    registered = set(s.get("container", k) for k, s in _services_cfg().items())
+    return discover_unregistered(registered)
+
+
+@app.get("/enforcement/status", tags=["Enforcement"])
 def enforcement_status():
     """Current enforcement state — thresholds, live VRAM, what would be killed next."""
     vram = get_vram_usage()
     pct  = vram.get("percent", 0) / 100
     services = _services_cfg()
-
-    # Determine kill order (for UI visibility)
-    candidates = []
-    try:
-        client = _docker_client()
-        for svc_name, svc in services.items():
-            ctr = svc.get("container")
-            if not ctr:
-                continue
-            limit_mode = svc.get("limit_mode", "soft")
-            try:
-                c      = client.containers.get(ctr)
-                status = c.status
-            except Exception:
-                status = "unknown"
-            candidates.append({
-                "service":    svc_name,
-                "container":  ctr,
-                "priority":   svc.get("priority", 3),
-                "limit_mode": limit_mode,
-                "status":     status,
-                "would_kill": limit_mode == "hard" and status == "running",
-            })
-        candidates.sort(key=lambda x: -x["priority"])
-    except Exception:
-        pass
 
     from core.resources import WARN_THRESHOLD, HARD_THRESHOLD, _FALLBACK_TOTAL
     vram_total = vram.get("total_gb", _FALLBACK_TOTAL)
@@ -672,37 +1006,172 @@ def enforcement_status():
         "enforcing":       enabled and pct >= HARD_THRESHOLD and bool(_active_modes),
         "active_modes":    list(_active_modes),
         "paused":          not bool(_active_modes),
-        "kill_order":      candidates,
+        "kill_order":      _build_kill_order(services),
         "kill_log":        list(_kill_log),
     }
 
 
-@app.post("/enforcement/enable")
+@app.post("/enforcement/enable", tags=["Enforcement"])
 def enforcement_enable():
     _enforcer.enforcer_enabled = True
     return {"enabled": True}
 
 
-@app.post("/enforcement/disable")
+@app.post("/enforcement/disable", tags=["Enforcement"])
 def enforcement_disable():
     _enforcer.enforcer_enabled = False
     return {"enabled": False}
 
 
-@app.post("/modes/{name}/reset")
-def reset_mode_allocations(name: str):
+@app.post("/enforcement/ceiling", tags=["Enforcement"])
+def enforcement_set_ceiling(body: dict):
+    """Set virtual VRAM ceiling and/or warn/hard thresholds.
+    body: {vram_ceiling_gb?: float|null, warn_threshold?: float, hard_threshold?: float}
+    Setting vram_ceiling_gb to null clears the ceiling (uses real VRAM total).
+    """
+    from core import resources
+    from core.vram import get_vram_usage
+
+    real_total = get_vram_usage().get("total_gb", 20.0)
+    warnings = []
+
+    if "vram_ceiling_gb" in body:
+        val = body["vram_ceiling_gb"]
+        if val is None or val == 0:
+            _enforcer.vram_virtual_ceiling_gb = None
+        else:
+            val = float(val)
+            if val > real_total:
+                warnings.append(f"Ceiling {val}GB exceeds real VRAM ({real_total}GB)")
+            if val < 0:
+                return {"error": "VRAM ceiling cannot be negative"}
+            _enforcer.vram_virtual_ceiling_gb = val
+
+    if "warn_threshold" in body:
+        resources.WARN_THRESHOLD = max(0.0, min(1.0, float(body["warn_threshold"])))
+    if "hard_threshold" in body:
+        resources.HARD_THRESHOLD = max(0.0, min(1.0, float(body["hard_threshold"])))
+
+    effective = _enforcer.vram_virtual_ceiling_gb or real_total
+    return {
+        "vram_ceiling_gb": _enforcer.vram_virtual_ceiling_gb,
+        "effective_total_gb": effective,
+        "real_total_gb": real_total,
+        "warn_threshold": resources.WARN_THRESHOLD,
+        "hard_threshold": resources.HARD_THRESHOLD,
+        "warn_at_gb": round(effective * resources.WARN_THRESHOLD, 1),
+        "hard_at_gb": round(effective * resources.HARD_THRESHOLD, 1),
+        "warnings": warnings,
+    }
+
+
+@app.post("/modes/{name}/reset", tags=["Modes"])
+async def reset_mode_allocations(name: str):
     """Restore a mode's allocations and budget to their startup snapshot values."""
     if name not in _MODES_SNAPSHOT:
         return {"error": f"Unknown mode: {name}"}
-    cfg = json.loads(MODES_CFG_FILE.read_text())
-    if name not in cfg["modes"]:
-        return {"error": f"Unknown mode: {name}"}
-    snap = _MODES_SNAPSHOT[name]
-    cfg["modes"][name]["allocations"]   = snap.get("allocations", {})
-    cfg["modes"][name]["vram_budget_gb"] = snap.get("vram_budget_gb", 0)
-    MODES_CFG_FILE.write_text(json.dumps(cfg, indent=2))
-    return {"reset": name, "allocations": cfg["modes"][name]["allocations"],
-            "vram_budget_gb": cfg["modes"][name]["vram_budget_gb"]}
+    async with _config_lock:
+        cfg = json.loads(MODES_CFG_FILE.read_text())
+        if name not in cfg["modes"]:
+            return {"error": f"Unknown mode: {name}"}
+        snap = copy.deepcopy(_MODES_SNAPSHOT[name])
+        cfg["modes"][name]["allocations"]   = snap.get("allocations", {})
+        cfg["modes"][name]["vram_budget_gb"] = snap.get("vram_budget_gb", 0)
+        _write_modes(cfg)
+        return {"reset": name, "allocations": cfg["modes"][name]["allocations"],
+                "vram_budget_gb": cfg["modes"][name]["vram_budget_gb"]}
+
+
+# ── Profile / Bottleneck Simulator endpoints ──────────────────────────────────
+
+@app.get("/config/profiles", tags=["Config"])
+def config_profiles_get():
+    return _profiles_cfg()
+
+
+@app.post("/config/profiles", tags=["Config"])
+def config_profiles_add(body: dict):
+    """Add a custom hardware profile."""
+    name = body.get("name", "").strip()
+    if not name:
+        return {"error": "name is required"}
+    key = name.lower().replace(" ", "-")
+    cfg = _profiles_cfg()
+    if key in cfg.get("profiles", {}):
+        return {"error": f"Profile '{key}' already exists"}
+    cfg.setdefault("profiles", {})[key] = {
+        "name":        name,
+        "vram_gb":     body.get("vram_gb", 0),
+        "ram_gb":      body.get("ram_gb", 0),
+        "cpu_cores":   body.get("cpu_cores", 0),
+        "io_mbps":     body.get("io_mbps", 0),
+        "description": body.get("description", ""),
+    }
+    _save_profiles(cfg)
+    return {"created": key, "profile": cfg["profiles"][key]}
+
+
+@app.post("/config/profiles/{name}/activate", tags=["Config"])
+def config_profiles_activate(name: str):
+    """Activate a hardware profile — sets VRAM ceiling + Docker cgroup limits."""
+    cfg = _profiles_cfg()
+    if name not in cfg.get("profiles", {}):
+        return {"error": f"Unknown profile: {name}"}
+    profile = cfg["profiles"][name]
+    _apply_profile(profile, name)
+    cfg["active"] = name
+    _save_profiles(cfg)
+    return {"activated": name, "profile": profile, "vram_ceiling_gb": _enforcer.vram_virtual_ceiling_gb}
+
+
+@app.post("/config/profiles/deactivate", tags=["Config"])
+def config_profiles_deactivate():
+    """Deactivate the current hardware profile — remove all simulated limits."""
+    _deactivate_profile()
+    cfg = _profiles_cfg()
+    cfg["active"] = None
+    _save_profiles(cfg)
+    return {"deactivated": True, "vram_ceiling_gb": None}
+
+
+# ── API Monitor endpoints ──────────────────────────────────────────────────────
+
+@app.get("/api/monitor/stream", tags=["Monitor"])
+def monitor_stream(limit: int = 50):
+    """Return the last N logged requests."""
+    items = list(_req_log)
+    return items[-limit:]
+
+
+@app.get("/api/monitor/stats", tags=["Monitor"])
+def monitor_stats():
+    """Aggregated request stats."""
+    total = _req_stats["total"]
+    avg = round(_req_stats["latency_sum"] / total, 1) if total else 0
+    top = sorted(_req_stats["endpoints"].items(), key=lambda x: -x[1])[:5]
+    return {
+        "total_reqs": total,
+        "avg_latency_ms": avg,
+        "error_count": _req_stats["errors"],
+        "top_endpoints": [{"path": p, "count": c} for p, c in top],
+    }
+
+
+@app.websocket("/api/monitor/ws")
+async def monitor_ws(websocket: WebSocket):
+    """Live push of new requests as they happen."""
+    await websocket.accept()
+    _monitor_ws_clients.append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            _monitor_ws_clients.remove(websocket)
+        except ValueError:
+            pass
 
 
 # ── Load extensions (routers mounted before static-file catch-all) ───────────
@@ -711,17 +1180,17 @@ _load_extensions(app)
 
 # ── Extension API ─────────────────────────────────────────────────────────────
 
-@app.get("/extensions")
+@app.get("/extensions", tags=["Extensions"])
 def extensions_list():
     return _list_extensions()
 
 
-@app.post("/extensions/{name}/enable")
+@app.post("/extensions/{name}/enable", tags=["Extensions"])
 def extensions_enable(name: str):
     return _ext_set_enabled(name, True)
 
 
-@app.post("/extensions/{name}/disable")
+@app.post("/extensions/{name}/disable", tags=["Extensions"])
 def extensions_disable(name: str):
     return _ext_set_enabled(name, False)
 

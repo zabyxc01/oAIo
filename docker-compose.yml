@@ -44,6 +44,10 @@ services:
       - AUDIO_TTS_ENGINE=openai
       - AUDIO_TTS_OPENAI_API_BASE_URL=http://rvc:8001/v1
       - AUDIO_TTS_OPENAI_API_KEY=sk-oaio
+      # RAG — use Ollama embeddings instead of Docker-local model
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=nomic-embed-text
+      - RAG_RERANKING_MODEL=
       - SCARF_NO_ANALYTICS=true
       - DO_NOT_TRACK=true
     depends_on:
@@ -102,6 +106,27 @@ services:
       - /dev/dri:/dev/dri
     group_add:
       - video
+
+  # ── StyleTTS2 (voice prototyping) ─────────────────────────────────────────────
+  styletts2:
+    build:
+      context: .
+      dockerfile: docker/styletts2/Dockerfile
+    container_name: styletts2
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "7870:7870"
+    volumes:
+      - /mnt/oaio/hf-cache:/root/.cache/huggingface
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
+      - PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH:-gfx1100}
 
   # ── ComfyUI ──────────────────────────────────────────────────────────────────
   comfyui:
@@ -169,6 +194,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - COMFYUI_USER_PATH=/comfyui-user
       - OAIO_SYMLINK_ROOT=${OAIO_SYMLINK_ROOT:-/mnt/oaio}
+      - HF_HOME=/mnt/oaio/hf-cache
     depends_on:
       - ollama
       - kokoro-tts

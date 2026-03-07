@@ -20,6 +20,24 @@ def _infer_tier(target: str) -> str:
     return "custom"
 
 
+def heal_dangling(paths_cfg: dict) -> list[str]:
+    """Create missing target directories for all symlinks. Returns list of healed paths."""
+    healed = []
+    for name, cfg in paths_cfg.items():
+        link = Path(cfg["link"])
+        try:
+            target = Path(os.readlink(link))
+        except OSError:
+            continue
+        if not target.exists() and not target.suffix:
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+                healed.append(str(target))
+            except Exception:
+                pass
+    return healed
+
+
 def get_all_paths(paths_cfg: dict) -> list[dict]:
     """Return list of path entries with current symlink target and inferred tier."""
     result = []
@@ -46,10 +64,30 @@ def get_all_paths(paths_cfg: dict) -> list[dict]:
 def repoint(link_path: str, new_target: str) -> dict:
     """
     Atomically repoint a symlink:
-      1. Create a temp symlink next to the original.
-      2. os.rename() (atomic on Linux) replaces the original.
+      1. Ensure target directory exists (prevents dangling symlinks that break Docker mounts).
+      2. Create a temp symlink next to the original.
+      3. os.rename() (atomic on Linux) replaces the original.
     """
     link = Path(link_path)
+    target = Path(new_target)
+
+    # Validate link_path is under SYMLINK_ROOT
+    try:
+        link.resolve().relative_to(SYMLINK_ROOT.resolve())
+    except ValueError:
+        return {"ok": False, "error": f"link_path must be under {SYMLINK_ROOT}"}
+
+    # Validate new_target is absolute and contains no '..' after resolution
+    if not target.is_absolute():
+        return {"ok": False, "error": "new_target must be an absolute path"}
+    if ".." in Path(new_target).parts:
+        return {"ok": False, "error": "new_target must not contain '..' components"}
+    # Auto-create target dir if it looks like a directory path (no file extension)
+    if not target.exists() and not target.suffix:
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
     tmp  = link.parent / (link.name + ".tmp")
     try:
         if tmp.exists() or tmp.is_symlink():

@@ -16,6 +16,11 @@ echo "==> Creating symlinks"
 create_link() {
   local name="$1" target="$2"
   local link="$OAIO/$name"
+  # Ensure target directory exists so Docker mounts don't fail on dangling symlinks
+  if [[ ! "$target" =~ \. ]] && [ ! -e "$target" ]; then
+    mkdir -p "$target"
+    echo "  CREATED: $target"
+  fi
   ln -sfn "$target" "$link"
   echo "  OK: $link -> $(readlink "$link")"
   COUNT=$((COUNT + 1))

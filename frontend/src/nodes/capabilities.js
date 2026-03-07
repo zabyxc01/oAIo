@@ -10,21 +10,24 @@
 // OLLMO_API defined globally in index.html
 
 // ── Workflow tag detection ───────────────────────────────────────────────────
+function _cv(name, fb) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fb;
+}
 function tagWorkflow(name) {
   const n = name.toLowerCase();
   if (/mvadapter|mv.adapter|mv_adapter|multiview|t2mv/.test(n))
-    return { tag: "3D", color: "#00bcd4" };
+    return { tag: "3D", color: _cv("--cyan", "#00d2be") };
   if (/3d|tpose|wireframe|zero123|triposr/.test(n))
-    return { tag: "3D", color: "#00bcd4" };
+    return { tag: "3D", color: _cv("--cyan", "#00d2be") };
   if (/video|animate|motion|wan|ltx/.test(n))
-    return { tag: "VIDEO", color: "#9c27b0" };
+    return { tag: "VIDEO", color: _cv("--purple", "#a855f7") };
   if (/pose|control/.test(n))
-    return { tag: "POSE", color: "#ff9800" };
+    return { tag: "POSE", color: _cv("--tier-sata", "#ffa726") };
   if (/upscale|esrgan/.test(n))
-    return { tag: "UPSCALE", color: "#607d8b" };
+    return { tag: "UPSCALE", color: _cv("--grp-control", "#78909c") };
   if (/flux|lora|sdxl|sd15|image/.test(n))
-    return { tag: "IMAGE", color: "#4caf50" };
-  return { tag: "CUSTOM", color: "#555" };
+    return { tag: "IMAGE", color: _cv("--green", "#00e676") };
+  return { tag: "CUSTOM", color: _cv("--text-dim", "#555") };
 }
 
 // ── LLM Model node (inside Ollama) ───────────────────────────────────────────
@@ -35,12 +38,12 @@ function tagWorkflow(name) {
     this._name    = "";
     this._sizeGb  = 0;
     this._loaded  = false;
-    this.color    = "#1a1e2a";
-    this.bgcolor  = "#141820";
+    this.color    = _cv("--bg3", "#161616");
+    this.bgcolor  = _cv("--bg2", "#0f0f0f");
   }
 
   LLMModelNode.prototype.onDrawBackground = function (ctx) {
-    const dot = this._loaded ? "#4caf50" : "#444";
+    const dot = this._loaded ? _cv("--green", "#00e676") : _cv("--border", "#252525");
     ctx.fillStyle = dot;
     ctx.beginPath();
     ctx.arc(this.size[0] - 14, 14, 5, 0, Math.PI * 2);
@@ -49,9 +52,9 @@ function tagWorkflow(name) {
 
   LLMModelNode.prototype.onDrawForeground = function (ctx) {
     ctx.font = "10px monospace";
-    ctx.fillStyle = this._loaded ? "#4caf50" : "#666";
+    ctx.fillStyle = this._loaded ? _cv("--green", "#00e676") : _cv("--text-dim", "#555");
     ctx.fillText(this._loaded ? "LOADED" : "unloaded", 8, this.size[1] - 28);
-    ctx.fillStyle = "#555";
+    ctx.fillStyle = _cv("--text-dim", "#555");
     ctx.fillText(`~${this._sizeGb}GB`, 8, this.size[1] - 14);
   };
 
@@ -80,9 +83,9 @@ function tagWorkflow(name) {
     this.size    = [210, 90];
     this._file   = "";
     this._tag    = "CUSTOM";
-    this._color  = "#555";
-    this.color   = "#1a1e1a";
-    this.bgcolor = "#141814";
+    this._color  = _cv("--text-dim", "#555");
+    this.color   = _cv("--bg3", "#161616");
+    this.bgcolor = _cv("--bg2", "#0f0f0f");
   }
 
   WorkflowNode.prototype.onDrawBackground = function (ctx) {
@@ -94,7 +97,7 @@ function tagWorkflow(name) {
     ctx.fillStyle = this._color;
     ctx.font = "bold 9px monospace";
     ctx.fillText(`[${this._tag}]`, 8, this.size[1] - 14);
-    ctx.fillStyle = "#444";
+    ctx.fillStyle = _cv("--border", "#252525");
     ctx.font = "9px monospace";
     ctx.fillText(this._file, 8, this.size[1] - 26);
   };
@@ -110,12 +113,12 @@ function tagWorkflow(name) {
     this.size    = [180, 80];
     this._file   = "";
     this._active = false;
-    this.color   = "#1e1a14";
-    this.bgcolor = "#18140e";
+    this.color   = _cv("--bg3", "#161616");
+    this.bgcolor = _cv("--bg2", "#0f0f0f");
   }
 
   VoiceModelNode.prototype.onDrawBackground = function (ctx) {
-    const dot = this._active ? "#ffb300" : "#444";
+    const dot = this._active ? _cv("--yellow", "#ffd740") : _cv("--border", "#252525");
     ctx.fillStyle = dot;
     ctx.beginPath();
     ctx.arc(this.size[0] - 14, 14, 5, 0, Math.PI * 2);
@@ -124,7 +127,7 @@ function tagWorkflow(name) {
 
   VoiceModelNode.prototype.onDrawForeground = function (ctx) {
     ctx.font = "10px monospace";
-    ctx.fillStyle = this._active ? "#ffb300" : "#555";
+    ctx.fillStyle = this._active ? _cv("--yellow", "#ffd740") : _cv("--text-dim", "#555");
     ctx.fillText(this._active ? "ACTIVE" : "inactive", 8, this.size[1] - 14);
   };
 
@@ -155,13 +158,13 @@ function tagWorkflow(name) {
     this.size    = [160, 70];
     this._alias  = "";
     this._mapped = "";
-    this.color   = "#1a1a1e";
-    this.bgcolor = "#141418";
+    this.color   = _cv("--bg3", "#161616");
+    this.bgcolor = _cv("--bg2", "#0f0f0f");
   }
 
   TTSVoiceNode.prototype.onDrawForeground = function (ctx) {
     ctx.font = "9px monospace";
-    ctx.fillStyle = "#555";
+    ctx.fillStyle = _cv("--text-dim", "#555");
     ctx.fillText(`→ ${this._mapped}`, 8, this.size[1] - 14);
   };
 
@@ -242,11 +245,11 @@ window.CapabilityNodes = {
   // Highlight capability nodes matching a mode's service list
   applyModeHighlight(graph, activeServices) {
     if (!graph) return;
-    graph.getNodes().forEach(node => {
+    (graph._nodes || []).forEach(node => {
       const inMode = activeServices.some(s => node.title?.toLowerCase().includes(s));
-      node.color   = inMode ? "#1a2a1a" : "#1a1a1a";
-      node.bgcolor = inMode ? "#141e14" : "#141414";
+      node.color   = inMode ? _cv("--tier-ram-bg", "#0a2a14") : _cv("--bg3", "#161616");
+      node.bgcolor = inMode ? _cv("--bg2", "#0f0f0f") : _cv("--bg2", "#0f0f0f");
     });
-    graph.setDirtyCanvas(true, true);
+    if (typeof canvas !== "undefined") canvas.setDirty(true, true);
   }
 };

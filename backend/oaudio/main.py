@@ -15,14 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-app = FastAPI(title="oAudio", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from contextlib import asynccontextmanager
 
 KOKORO_URL  = os.environ.get("KOKORO_URL",  "http://localhost:8000")
 RVC_PROXY   = os.environ.get("RVC_PROXY",   "http://localhost:8001")
@@ -36,11 +29,35 @@ CLONE_OUT   = OUTPUT_BASE / "clone"
 TEMP_OUT    = OUTPUT_BASE / "temp"
 HF_CACHE    = Path(os.environ.get("HF_HOME", "/hf-cache"))
 
+# Lazy-loaded Whisper model for ref_text auto-transcription
+_whisper_model = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-load Whisper model at startup so first /clone isn't slow
+    global _whisper_model
+    try:
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel("tiny", device="cpu",
+                                      download_root=str(HF_CACHE / "whisper"))
+    except Exception as e:
+        print(f"[oAudio] Whisper pre-load failed (will lazy-load): {e}")
+    yield
+
+
+app = FastAPI(title="oAudio", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 for d in [PROXY_OUT, WEBUI_OUT, CLONE_OUT, TEMP_OUT]:
     d.mkdir(parents=True, exist_ok=True)
 
-# Lazy-loaded Whisper model for ref_text auto-transcription
-_whisper_model = None
 
 def _transcribe(audio_bytes: bytes, filename: str) -> str:
     """Auto-transcribe reference audio using faster-whisper (tiny model, CPU)."""
@@ -49,7 +66,7 @@ def _transcribe(audio_bytes: bytes, filename: str) -> str:
         from faster_whisper import WhisperModel
         _whisper_model = WhisperModel("tiny", device="cpu",
                                       download_root=str(HF_CACHE / "whisper"))
-    tmp = TEMP_OUT / f"ref_{uuid.uuid4().hex}_{filename}"
+    tmp = TEMP_OUT / f"ref_{uuid.uuid4().hex}_{Path(filename).name}"
     tmp.write_bytes(audio_bytes)
     try:
         segments, _ = _whisper_model.transcribe(str(tmp), beam_size=1)
@@ -85,9 +102,12 @@ async def speak(req: SpeakRequest):
             json={"input": req.text, "voice": req.voice}
         )
     r.raise_for_status()
-    out = PROXY_OUT / "output.mp3"
+    out = PROXY_OUT / f"speak_{uuid.uuid4().hex}.mp3"
     out.write_bytes(r.content)
-    return Response(content=r.content, media_type="audio/mpeg")
+    try:
+        return Response(content=r.content, media_type="audio/mpeg")
+    finally:
+        out.unlink(missing_ok=True)
 
 
 @app.post("/convert")
@@ -164,7 +184,13 @@ async def clone(
         ) as stream:
             async for line in stream.aiter_lines():
                 if line.startswith("data:"):
-                    payload = json_lib.loads(line[5:].strip())
+                    raw = line[5:].strip()
+                    try:
+                        payload = json_lib.loads(raw)
+                    except json_lib.JSONDecodeError:
+                        print(f"[clone] SSE non-JSON data: {raw[:200]}")
+                        continue
+                    print(f"[clone] SSE payload type={type(payload).__name__} len={len(payload) if isinstance(payload, list) else 'n/a'}")
                     if isinstance(payload, list) and payload:
                         item = payload[0]
                         output_path = (
