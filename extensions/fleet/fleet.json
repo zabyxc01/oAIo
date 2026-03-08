@@ -18,5 +18,13 @@
       "created_at": "2026-03-02T03:08:53.818622+00:00",
       "completed_at": "2026-03-02T03:08:53.836199+00:00"
     }
+  },
+  "config": {
+    "heartbeat_mode": "both",
+    "heartbeat_interval": 30,
+    "stale_after": 90,
+    "discovery_enabled": true,
+    "discovery_port": 9001,
+    "discovery_interval": 15
   }
 }

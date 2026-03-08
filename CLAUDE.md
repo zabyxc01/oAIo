@@ -201,7 +201,7 @@ GET  /voices
 - **WS reconnect** — clean recovery if connection drops
 - **boot_with_system** — oaio boot sequence should respect the flag
 - **f5-tts OOM** — system RAM pressure on startup, no enforcer coverage for host RAM OOM
-- **Benchmark card -> service nodes** — wire VRAM/model timeline into LiteGraph service nodes
+- ~~**Benchmark card -> service nodes**~~ — DONE: per-service VRAM/RAM estimates in node sparklines, title bar color syncs from WS
 - **Security** — ports bind 0.0.0.0, no auth; plan: Tailscale + bind 127.0.0.1 + API token
 - **oAudio /convert + /clone** — untested end-to-end (/speak verified)
 - **oaio-workflows/** — per-disk discovery anchor + performance-profiled workflow export

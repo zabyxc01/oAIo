@@ -33,6 +33,7 @@ async function registerServiceNodes() {
       group:      svc.group || "Other",
       port:       svc.port  || 0,
       vram:       svc.vram_est_gb || 0,
+      ram:        svc.ram_est_gb || 0,
       memoryMode: svc.memory_mode || "vram",
     }));
   } catch (e) {
@@ -52,12 +53,13 @@ async function registerServiceNodes() {
       const _grpHex = _grpKey ? (_cs.getPropertyValue(_grpKey).trim() || "#555") : "";
       this.color   = _cs.getPropertyValue("--bg3").trim() || "#161616";
       this.bgcolor = _grpHex ? `rgb(${parseInt(_grpHex.slice(1,3),16)*0.12|0},${parseInt(_grpHex.slice(3,5),16)*0.12|0},${parseInt(_grpHex.slice(5,7),16)*0.12|0})` : (_cs.getPropertyValue("--bg2").trim() || "#0f0f0f");
-      this.size    = [180, 90];
+      this.size    = [180, 100];
       this._svc = {
         name:       def.name,
         group:      def.group,
         port:       def.port,
         vramEst:    def.vram,
+        ramEst:     def.ram,
         memoryMode: def.memoryMode,
         desc:       def.label,
         status:     "unknown",
@@ -101,6 +103,16 @@ async function registerServiceNodes() {
                      : (_cs.getPropertyValue("--yellow").trim() || "#ffd740");
       ctx.fillStyle = barColor;
       ctx.fillRect(0, 0, this.size[0], 2);
+
+      // ── Resource label ─────────────────────────────────
+      const memMode = s.memoryMode || "vram";
+      const resVal = memMode === "vram" && s.vramEst > 0 ? s.vramEst : (s.ramEst || 0);
+      if (resVal > 0) {
+        ctx.fillStyle = _cs.getPropertyValue("--text-dim").trim() || "#555";
+        ctx.font = "9px monospace";
+        const resLabel = memMode === "vram" ? `${resVal}GB VRAM` : `${resVal}GB RAM`;
+        ctx.fillText(resLabel, 6, this.size[1] - 32);
+      }
 
       // ── Sparkline ──────────────────────────────────────
       const buf = this._sparkData;

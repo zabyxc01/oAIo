@@ -171,7 +171,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.vram import get_vram_usage, get_gpu_utilization
 from core.docker_control import get_status, start, stop, get_logs, all_status, apply_resource_limits, remove_resource_limits, discover_unregistered, set_restart_policy
-from core.paths import get_all_paths, repoint, get_storage_stats, heal_dangling
+from core.paths import get_all_paths, repoint, get_storage_stats, heal_dangling, discover_workflows, export_workflow
 from core.resources import projected_vram, check_alerts, get_system_accounting
 from core.enforcer import enforcement_loop, active_modes as _active_modes, kill_log as _kill_log, register_manual_stop
 import core.enforcer as _enforcer
@@ -820,6 +820,25 @@ def comfyui_workflows():
     return [{"name": f.stem, "file": f.name} for f in files]
 
 
+# ── Workflow discovery & export ───────────────────────────────────────────────
+
+@app.get("/workflows", tags=["Workflows"])
+def workflows_list():
+    """Discover workflow JSON files across all known storage tiers."""
+    return discover_workflows()
+
+
+@app.get("/workflows/export", tags=["Workflows"])
+def workflows_export(path: str):
+    """Export a workflow with oAIo storage tier metadata. ?path=/mnt/oaio/workflows/my.json"""
+    if not path or ".." in path:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    result = export_workflow(path)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Workflow not found or not readable")
+    return result
+
+
 # ── Paths & Routing config endpoints ─────────────────────────────────────────
 
 @app.get("/config/paths", tags=["Config"])
@@ -829,76 +848,79 @@ def config_paths_list():
 
 
 @app.post("/config/paths", tags=["Config"])
-def config_paths_add(body: dict):
+async def config_paths_add(body: dict):
     """body: {"name": "mymodels", "label": "My Models", "target": "/data/models", "containers": ["comfyui"]}"""
-    name   = body.get("name", "").strip().lower().replace(" ", "-")
-    label  = body.get("label", name)
-    target = body.get("target", "")
-    ctrs   = body.get("containers", [])
-    if not name or not target:
-        return {"error": "name and target are required"}
-    cfg = json.loads(PATHS_CFG_FILE.read_text())
-    if name in cfg:
-        return {"error": f"Path '{name}' already exists — use POST /config/paths/{name} to repoint"}
-    link = f"/mnt/oaio/{name}"
-    cfg[name] = {"label": label, "link": link, "default_target": target, "containers": ctrs}
-    _atomic_write(PATHS_CFG_FILE, json.dumps(cfg, indent=2))
-    result = repoint(link, target)
-    return {**result, "name": name, "label": label, "containers": ctrs}
+    async with _config_lock:
+        name   = body.get("name", "").strip().lower().replace(" ", "-")
+        label  = body.get("label", name)
+        target = body.get("target", "")
+        ctrs   = body.get("containers", [])
+        if not name or not target:
+            return {"error": "name and target are required"}
+        cfg = json.loads(PATHS_CFG_FILE.read_text())
+        if name in cfg:
+            return {"error": f"Path '{name}' already exists — use POST /config/paths/{name} to repoint"}
+        link = f"/mnt/oaio/{name}"
+        cfg[name] = {"label": label, "link": link, "default_target": target, "containers": ctrs}
+        _atomic_write(PATHS_CFG_FILE, json.dumps(cfg, indent=2))
+        result = repoint(link, target)
+        return {**result, "name": name, "label": label, "containers": ctrs}
 
 
 @app.delete("/config/paths/{name}", tags=["Config"])
-def config_paths_delete(name: str):
-    cfg = json.loads(PATHS_CFG_FILE.read_text())
-    if name not in cfg:
-        return {"error": f"Unknown path: {name}"}
-    link = Path(cfg[name]["link"])
-    if link.is_symlink():
-        link.unlink()
-    del cfg[name]
-    _atomic_write(PATHS_CFG_FILE, json.dumps(cfg, indent=2))
-    return {"deleted": name}
+async def config_paths_delete(name: str):
+    async with _config_lock:
+        cfg = json.loads(PATHS_CFG_FILE.read_text())
+        if name not in cfg:
+            return {"error": f"Unknown path: {name}"}
+        link = Path(cfg[name]["link"])
+        if link.is_symlink():
+            link.unlink()
+        del cfg[name]
+        _atomic_write(PATHS_CFG_FILE, json.dumps(cfg, indent=2))
+        return {"deleted": name}
 
 
 @app.post("/config/paths/{name}", tags=["Config"])
-def config_paths_set(name: str, body: dict):
+async def config_paths_set(name: str, body: dict):
     """
     body: {"target": "/new/path"} — absolute path, or:
           {"target": "ram"}       — activate RAM tier (/dev/shm/oaio-<name>)
           {"target": "default"}   — revert to default_target from config
     Switching away from "ram" automatically cleans up the /dev/shm directory.
     """
-    cfg = json.loads(PATHS_CFG_FILE.read_text())
-    if name not in cfg:
-        return {"error": f"Unknown path: {name}"}
+    async with _config_lock:
+        cfg = json.loads(PATHS_CFG_FILE.read_text())
+        if name not in cfg:
+            return {"error": f"Unknown path: {name}"}
 
-    entry      = cfg[name]
-    link       = entry["link"]
-    new_target = body.get("target", "").strip()
-    if not new_target:
-        return {"error": "target is required"}
+        entry      = cfg[name]
+        link       = entry["link"]
+        new_target = body.get("target", "").strip()
+        if not new_target:
+            return {"error": "target is required"}
 
-    # Detect if currently on RAM tier so we can clean up on flip-away
-    try:
-        import os as _os
-        current_target = _os.readlink(link)
-        currently_ram  = current_target.startswith("/dev/shm/oaio-")
-    except OSError:
-        currently_ram = False
+        # Detect if currently on RAM tier so we can clean up on flip-away
+        try:
+            import os as _os
+            current_target = _os.readlink(link)
+            currently_ram  = current_target.startswith("/dev/shm/oaio-")
+        except OSError:
+            currently_ram = False
 
-    if new_target == "ram":
-        result = ram_tier.activate(name)
-        if not result["ok"]:
-            return result
-        new_target = result["path"]
-    elif new_target == "default":
-        new_target = entry["default_target"]
-        if currently_ram:
-            ram_tier.deactivate(name, move_to=new_target)
-    elif currently_ram:
-        ram_tier.deactivate(name)  # clean up shm without moving contents
+        if new_target == "ram":
+            result = ram_tier.activate(name)
+            if not result["ok"]:
+                return result
+            new_target = result["path"]
+        elif new_target == "default":
+            new_target = entry["default_target"]
+            if currently_ram:
+                ram_tier.deactivate(name, move_to=new_target)
+        elif currently_ram:
+            ram_tier.deactivate(name)  # clean up shm without moving contents
 
-    return repoint(link, new_target)
+        return repoint(link, new_target)
 
 
 @app.get("/config/routing", tags=["Config"])

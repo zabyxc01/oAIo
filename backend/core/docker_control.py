@@ -106,11 +106,19 @@ def set_restart_policy(container_name: str, policy: str = "unless-stopped") -> d
 
 
 def all_status(service_registry: dict) -> list:
-    return [
-        get_status(s["container"])
-        for s in service_registry.values()
-        if s.get("container")
-    ]
+    result = []
+    for svc_name, s in service_registry.items():
+        ctr = s.get("container")
+        if not ctr:
+            continue
+        info = get_status(ctr)
+        # Enrich with per-service resource estimates for frontend sparklines
+        info["vram_est_gb"] = s.get("vram_est_gb", 0)
+        info["ram_est_gb"] = s.get("ram_est_gb", 0)
+        info["memory_mode"] = s.get("memory_mode", "vram")
+        info["group"] = s.get("group", "")
+        result.append(info)
+    return result
 
 
 def discover_unregistered(registered_containers: set) -> list:

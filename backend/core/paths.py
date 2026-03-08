@@ -1,8 +1,10 @@
 """
 Symlink management and storage I/O stats for /mnt/oaio/* paths.
 """
+import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 SYMLINK_ROOT = Path(os.environ.get("OAIO_SYMLINK_ROOT", "/mnt/oaio"))
@@ -56,6 +58,7 @@ def get_all_paths(paths_cfg: dict) -> list[dict]:
             "link":            str(link),
             "target":          target,
             "default_target":  cfg["default_target"],
+            "default_tier":    _infer_tier(cfg["default_target"]),
             "tier":            _infer_tier(target) if target else "missing",
             "exists":          exists,
             "containers":      cfg.get("containers", []),
@@ -74,8 +77,11 @@ def repoint(link_path: str, new_target: str) -> dict:
     target = Path(new_target)
 
     # Validate link_path is under SYMLINK_ROOT
+    # Use parent.resolve() / name — link.resolve() would follow the symlink
+    # to its current target, which is NOT under SYMLINK_ROOT.
     try:
-        link.resolve().relative_to(SYMLINK_ROOT.resolve())
+        link_location = link.parent.resolve() / link.name
+        link_location.relative_to(SYMLINK_ROOT.resolve())
     except ValueError:
         return {"ok": False, "error": f"link_path must be under {SYMLINK_ROOT}"}
 
@@ -160,3 +166,144 @@ def get_storage_stats() -> dict:
     _prev_stats = curr
     _prev_time  = now
     return result
+
+
+# ── Workflow discovery & export ──────────────────────────────────────────────
+
+# Known locations to scan for workflow JSON files
+_WORKFLOW_SCAN_ROOTS = [
+    "/mnt/oaio/workflows",          # primary anchor (symlink)
+    "/mnt/oaio/comfyui-user",       # ComfyUI user workflows
+]
+
+
+def _is_workflow_json(path: Path) -> bool:
+    """Quick heuristic: JSON file that is not a dotfile and is under 10 MB."""
+    try:
+        return (path.suffix == ".json"
+                and not path.name.startswith(".")
+                and path.stat().st_size < 10 * 1024 * 1024)
+    except OSError:
+        return False
+
+
+def discover_workflows() -> list[dict]:
+    """
+    Scan known disk locations for .json workflow files.
+    Returns list of workflow descriptors with tier metadata.
+    """
+    seen: set[str] = set()
+    results: list[dict] = []
+
+    for root_str in _WORKFLOW_SCAN_ROOTS:
+        root = Path(root_str)
+        if not root.exists():
+            continue
+
+        # Resolve through symlink to get the real disk path for tier inference
+        try:
+            resolved_root = str(root.resolve())
+        except OSError:
+            resolved_root = root_str
+
+        tier = _infer_tier(resolved_root)
+
+        # Walk up to 2 levels deep to keep it bounded
+        for json_file in root.rglob("*.json"):
+            try:
+                rel = json_file.relative_to(root)
+                if len(rel.parts) - 1 > 2:
+                    continue
+            except ValueError:
+                continue
+
+            if not _is_workflow_json(json_file):
+                continue
+
+            real_path = str(json_file.resolve())
+            if real_path in seen:
+                continue
+            seen.add(real_path)
+
+            try:
+                stat = json_file.stat()
+                modified = datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc
+                ).isoformat()
+                size_kb = round(stat.st_size / 1024, 1)
+            except OSError:
+                modified = None
+                size_kb = 0
+
+            results.append({
+                "name":     json_file.stem,
+                "file":     json_file.name,
+                "path":     str(json_file),
+                "tier":     tier,
+                "disk":     resolved_root,
+                "source":   root_str,
+                "size_kb":  size_kb,
+                "modified": modified,
+            })
+
+    results.sort(key=lambda w: (w["source"], w["name"]))
+    return results
+
+
+def export_workflow(workflow_path: str) -> dict | None:
+    """
+    Read a workflow JSON file and wrap it with storage tier metadata.
+    Returns None if the file does not exist or is not a valid workflow.
+    """
+    fp = Path(workflow_path)
+
+    # Security: must resolve under a known scan root
+    try:
+        resolved = str(fp.resolve())
+    except OSError:
+        return None
+
+    allowed = False
+    for root_str in _WORKFLOW_SCAN_ROOTS:
+        try:
+            root_resolved = str(Path(root_str).resolve())
+            if resolved.startswith(root_resolved + "/") or resolved == root_resolved:
+                allowed = True
+                break
+        except OSError:
+            continue
+    if not allowed:
+        return None
+
+    if not fp.exists() or not _is_workflow_json(fp):
+        return None
+
+    try:
+        workflow_data = json.loads(fp.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    try:
+        stat = fp.stat()
+        modified = datetime.fromtimestamp(
+            stat.st_mtime, tz=timezone.utc
+        ).isoformat()
+        size_kb = round(stat.st_size / 1024, 1)
+    except OSError:
+        modified = None
+        size_kb = 0
+
+    tier = _infer_tier(resolved)
+
+    return {
+        "oaio_export": {
+            "version":     1,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "source_file": str(fp),
+            "source_tier": tier,
+            "source_disk": "/".join(resolved.split("/")[1:3]),
+            "size_kb":     size_kb,
+            "modified":    modified,
+        },
+        "workflow": workflow_data,
+    }

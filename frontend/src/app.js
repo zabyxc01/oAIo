@@ -319,28 +319,48 @@ function syncNodeStatuses(services, vramData) {
   const byName = {};
   services.forEach(s => { byName[s.name] = s; });
   let dirty = false;
+  const _cs = getComputedStyle(document.documentElement);
   graph._nodes.forEach(node => {
     if (!node._svc) return;
     const live = byName[node._svc.name];
     if (!live) return;
     const newStatus = live.status || "unknown";
     const newRam = live.ram_used_gb || 0;
+    // Update vramEst from live WS data if available (stays current with services.json edits)
+    if (live.vram_est_gb !== undefined) node._svc.vramEst = live.vram_est_gb;
+    if (live.ram_est_gb !== undefined) node._svc.ramEst = live.ram_est_gb;
+    if (live.memory_mode) node._svc.memoryMode = live.memory_mode;
     if (node._svc.status !== newStatus || node._svc.ramUsed !== newRam) {
+      const statusChanged = node._svc.status !== newStatus;
       node._svc.status = newStatus;
       node._svc.ramUsed = newRam;
       dirty = true;
+      // Update title bar color on status change
+      if (statusChanged) {
+        const _green = _cs.getPropertyValue("--tier-ram-bg").trim() || "#0a2a14";
+        const _amber = _cs.getPropertyValue("--tier-sata-bg").trim() || "#2a1e00";
+        node.color = newStatus === "running" ? _green
+                   : newStatus === "stopped" || newStatus === "exited" ? _amber
+                   : _cs.getPropertyValue("--tier-nvme-bg").trim() || "#0d1a2f";
+      }
     }
-    // Push sparkline sample: use RAM if available, else binary activity
+    // Push sparkline sample: per-service resource consumption
     if (typeof node._sparkPush === "function") {
       let val;
-      if (newRam > 0) {
-        val = newRam;  // GB of RAM used by this service
-      } else if (newStatus === "running" && node._svc.vramEst > 0) {
-        // For VRAM services: use the service's estimated VRAM share as a proxy
-        val = node._svc.vramEst;
+      if (newStatus === "running") {
+        const memMode = node._svc.memoryMode || "vram";
+        if (memMode === "vram" && node._svc.vramEst > 0) {
+          // VRAM service: show estimated VRAM consumption
+          val = node._svc.vramEst;
+        } else if (node._svc.ramEst > 0) {
+          // RAM-only service: show estimated RAM consumption
+          val = node._svc.ramEst;
+        } else {
+          // Fallback: binary running indicator
+          val = 1;
+        }
       } else {
-        // Binary: running=1, stopped=0
-        val = newStatus === "running" ? 1 : 0;
+        val = 0;
       }
       node._sparkPush(val);
     }
@@ -1302,7 +1322,7 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
       this.color   = nc.color;
       this.bgcolor = nc.bgcolor;
       this.size    = [220, 130];
-      this._svc    = { name, group, port, vramEst: vram, status: "unknown", ramUsed: 0 };
+      this._svc    = { name, group, port, vramEst: vram, ramEst: 0, memoryMode: "vram", status: "unknown", ramUsed: 0 };
       // Sparkline rolling buffer
       this._sparkData  = [];
       this._sparkMax   = 30;
@@ -1373,10 +1393,14 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
     };
     NodeClass.prototype.onDrawForeground = function(ctx) {
       const s = this._svc;
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-dim").trim() || "#555";
+      const _cs = getComputedStyle(document.documentElement);
+      ctx.fillStyle = _cs.getPropertyValue("--text-dim").trim() || "#555";
       ctx.font = "10px monospace";
-      ctx.fillText(`VRAM est: ${s.vramEst}GB`, 8, this.size[1] - 62);
-      ctx.fillText(`RAM: ${s.ramUsed}GB`, 8, this.size[1] - 48);
+      const memMode = s.memoryMode || "vram";
+      const resVal = memMode === "vram" && s.vramEst > 0 ? s.vramEst : (s.ramEst || 0);
+      const resType = memMode === "vram" && s.vramEst > 0 ? "VRAM" : "RAM";
+      ctx.fillText(`${resType}: ${resVal}GB est`, 8, this.size[1] - 62);
+      ctx.fillText(`RAM used: ${s.ramUsed}GB`, 8, this.size[1] - 48);
       ctx.fillText(`Group: ${s.group}`, 8, this.size[1] - 34);
 
       // ── Sparkline ──────────────────────────────────────
@@ -2575,7 +2599,7 @@ function renderRamTier(ramTier) {
     const free = ramTier.free_gb ?? 0;
     const pct = ramTier.percent ?? 0;
     const pctNorm = pct / 100;
-    const barCls = pctNorm > 0.85 ? " hot" : pctNorm > 0.6 ? " warn" : "";
+    const barCls = pctNorm > 0.80 ? " hot" : pctNorm > 0.50 ? " warn" : "";
     headerHTML = `<div class="acct-stats" style="margin-bottom:4px">
       <span>${poolCount} pool${poolCount !== 1 ? 's' : ''} active</span>
       <span>${_esc(used.toFixed(1))} / ${_esc(String(ceiling))} GB (${_esc(pct.toFixed(0))}%)</span>
@@ -2668,9 +2692,85 @@ async function loadAdvancedTab() {
     renderAdvConnectionMap(routing);
     renderPortMap(services);
     renderVolumeMap();
+    loadWorkflowsList();
   } catch (e) {
     console.warn("loadAdvancedTab error:", e);
   }
+}
+
+// --- Workflow discovery ---
+const _TIER_COLORS = { nvme: "#4fc3f7", sata: "#ffb74d", ram: "#81c784", custom: "#b0bec5" };
+
+async function loadWorkflowsList() {
+  const el = document.getElementById("adv-workflows-list");
+  if (!el) return;
+  try {
+    const r = await _fetch(`${OLLMO_API}/workflows`);
+    const list = await r.json();
+    renderWorkflowsList(el, list);
+  } catch (e) {
+    el.innerHTML = '<span class="dim">Failed to load workflows</span>';
+  }
+}
+
+function renderWorkflowsList(el, workflows) {
+  if (!workflows.length) {
+    el.innerHTML = '<span class="dim">No workflows found. Drop .json files into /mnt/oaio/workflows/</span>';
+    return;
+  }
+
+  // Group by source
+  const groups = {};
+  workflows.forEach(w => {
+    const key = w.source || "unknown";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(w);
+  });
+
+  let html = '';
+  for (const [source, items] of Object.entries(groups)) {
+    const srcLabel = source.replace("/mnt/oaio/", "");
+    html += '<div style="margin-bottom:8px">' +
+      '<span class="dim" style="font-size:9px;text-transform:uppercase;letter-spacing:1px">' + _esc(srcLabel) + '</span>' +
+      '</div>';
+    items.forEach(w => {
+      const tierColor = _TIER_COLORS[w.tier] || _TIER_COLORS.custom;
+      const mod = w.modified ? new Date(w.modified).toLocaleDateString() : "?";
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05)">' +
+        '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + tierColor + ';flex-shrink:0" title="' + _esc(w.tier) + '"></span>' +
+        '<span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + _esc(w.path) + '">' + _esc(w.name) + '</span>' +
+        '<span class="dim" style="font-size:9px;flex-shrink:0">' + _esc(w.tier) + '</span>' +
+        '<span class="dim" style="font-size:9px;flex-shrink:0">' + w.size_kb + ' KB</span>' +
+        '<span class="dim" style="font-size:9px;flex-shrink:0">' + _esc(mod) + '</span>' +
+        '<button class="grp-pill" style="font-size:8px;padding:2px 6px;flex-shrink:0" data-wf-export="' + _esc(w.path) + '">EXPORT</button>' +
+        '</div>';
+    });
+  }
+  el.innerHTML = html;
+
+  // Wire export buttons (no inline onclick -- uses data attribute)
+  el.querySelectorAll("[data-wf-export]").forEach(function(btn) {
+    btn.addEventListener("click", async function() {
+      var wfPath = btn.getAttribute("data-wf-export");
+      try {
+        var r = await _fetch(OLLMO_API + "/workflows/export?path=" + encodeURIComponent(wfPath));
+        var data = await r.json();
+        var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        var url  = URL.createObjectURL(blob);
+        var a    = document.createElement("a");
+        a.href = url;
+        var fname = (data.oaio_export && data.oaio_export.source_file)
+          ? data.oaio_export.source_file.split("/").pop()
+          : "workflow";
+        a.download = fname + ".oaio-export.json";
+        a.click();
+        URL.revokeObjectURL(url);
+        showAlert("info", "Workflow exported with tier metadata.");
+      } catch (e) {
+        showAlert("error", "Export failed: " + e.message);
+      }
+    });
+  });
 }
 
 function renderDiskMap(paths) {

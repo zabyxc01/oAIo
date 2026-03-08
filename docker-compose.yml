@@ -176,6 +176,7 @@ services:
       - ./extensions:/app/extensions
       - ./frontend:/app/frontend
       - /mnt/oaio:/mnt/oaio
+      - /dev/shm:/dev/shm                       # RAM tier — host tmpfs for fast staging
       - /mnt/storage:/mnt/storage:ro
       - /mnt/windows-sata:/mnt/windows-sata:ro
       - /home/oao/reference-audio:/home/oao/reference-audio:ro
