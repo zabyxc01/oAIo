@@ -3304,3 +3304,456 @@ body.btn-large .tab-btn { padding: 8px 16px; font-size: 13px; }
 .dbg-line.level-info {
   color: #8a8a8a;
 }
+
+/* ── M³ Tab ────────────────────────────────────────────────────────────── */
+
+/* Accent buttons */
+.m3-accent {
+  border-color: var(--purple) !important;
+  color: var(--purple) !important;
+}
+.m3-accent:hover {
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.3);
+}
+.m3-danger {
+  border-color: var(--red) !important;
+  color: var(--red) !important;
+  opacity: 0.7;
+}
+.m3-danger:hover {
+  opacity: 1;
+}
+
+/* Card accent override for M³ cards */
+#tab-m3 .card {
+  border-left-color: var(--purple);
+}
+#tab-m3 .card-title {
+  color: var(--purple);
+}
+#tab-m3 .card:hover {
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.06), inset 0 0 30px rgba(168, 85, 247, 0.02);
+}
+
+/* Form elements */
+.m3-builder-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.m3-form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.m3-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 80px;
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
+}
+.m3-input,
+.m3-select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  flex: 1;
+  min-width: 0;
+}
+.m3-input:focus,
+.m3-select:focus,
+.m3-textarea:focus {
+  outline: none;
+  border-color: var(--purple);
+  box-shadow: 0 0 6px rgba(168, 85, 247, 0.2);
+}
+.m3-input-sm {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 10px;
+  font-family: inherit;
+  width: 80px;
+}
+.m3-input-sm:focus {
+  outline: none;
+  border-color: var(--purple);
+}
+.m3-textarea {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  resize: vertical;
+  flex: 1;
+  min-width: 0;
+}
+.m3-builder-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+/* Pipeline grid */
+.m3-pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.m3-pipeline-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  transition: border-color 0.2s;
+}
+.m3-pipeline-card:hover {
+  border-color: var(--purple);
+}
+.m3-pipeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.m3-pipeline-name {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+}
+.m3-step-badge {
+  font-size: 9px;
+  background: rgba(168, 85, 247, 0.15);
+  color: var(--purple);
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.m3-pipeline-desc {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.m3-pipeline-models {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  opacity: 0.7;
+}
+.m3-pipeline-actions {
+  display: flex;
+  gap: 4px;
+}
+.m3-pipeline-actions .mode-btn {
+  font-size: 8px;
+  padding: 2px 8px;
+}
+
+/* Step builder rows */
+.m3-step-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px;
+  margin-bottom: 6px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  border-left: 3px solid var(--purple);
+}
+.m3-step-number {
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--purple);
+  min-width: 24px;
+  text-align: center;
+  padding-top: 2px;
+  opacity: 0.7;
+}
+.m3-step-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.m3-step-model {
+  max-width: 260px;
+}
+.m3-step-prompt {
+  min-height: 40px;
+}
+.m3-step-temp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.m3-step-temp {
+  width: 120px;
+  accent-color: var(--purple);
+}
+.m3-step-temp-val {
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 28px;
+}
+.m3-step-remove {
+  font-size: 16px;
+  padding: 2px 6px !important;
+  align-self: flex-start;
+}
+
+/* Runner */
+.m3-run-loading {
+  font-size: 10px;
+  color: var(--purple);
+  padding: 12px 8px;
+  animation: m3-pulse 1.5s ease-in-out infinite;
+}
+@keyframes m3-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.m3-run-step {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.m3-run-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+}
+.m3-run-model {
+  font-size: 10px;
+  color: var(--text);
+  font-weight: bold;
+}
+.m3-run-duration {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.m3-run-output {
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg);
+  margin: 0;
+}
+.m3-run-output code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  font-family: inherit;
+}
+.m3-run-final {
+  border: 1px solid var(--purple);
+  border-radius: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+.m3-final-badge {
+  background: rgba(168, 85, 247, 0.25);
+}
+.m3-final-output {
+  border-left: 3px solid var(--purple);
+}
+.m3-run-error {
+  font-size: 10px;
+  color: var(--red);
+  padding: 8px;
+}
+
+/* Training grid */
+.m3-training-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.m3-training-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.m3-training-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.m3-training-name {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+.m3-training-meta {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.m3-training-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.m3-training-actions .mode-btn {
+  font-size: 8px;
+  padding: 2px 8px;
+}
+
+/* Method badges */
+.m3-method-badge {
+  font-size: 8px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+}
+.m3-method-qlora {
+  background: rgba(168, 85, 247, 0.15);
+  color: var(--purple);
+}
+.m3-method-lora {
+  background: rgba(66, 165, 245, 0.15);
+  color: var(--grp-llm);
+}
+.m3-method-full {
+  background: rgba(255, 167, 38, 0.15);
+  color: var(--grp-audio);
+}
+
+/* Status badges */
+.m3-status-badge {
+  font-size: 8px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+}
+.m3-status-created {
+  background: rgba(120, 144, 156, 0.15);
+  color: var(--grp-control);
+}
+.m3-status-queued {
+  background: rgba(255, 215, 64, 0.15);
+  color: var(--yellow);
+}
+.m3-status-running {
+  background: rgba(66, 165, 245, 0.15);
+  color: var(--grp-llm);
+  animation: m3-pulse 1.5s ease-in-out infinite;
+}
+.m3-status-completed {
+  background: rgba(0, 230, 118, 0.15);
+  color: var(--green);
+}
+.m3-status-failed {
+  background: rgba(255, 23, 68, 0.15);
+  color: var(--red);
+}
+.m3-status-cancelled {
+  background: rgba(120, 144, 156, 0.15);
+  color: var(--text-dim);
+}
+
+/* Progress bar */
+.m3-progress-bar {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+.m3-progress-fill {
+  height: 100%;
+  background: var(--purple);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+  box-shadow: 0 0 6px rgba(168, 85, 247, 0.4);
+}
+
+/* Hyperparameters */
+.m3-hyperparams {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px 10px;
+}
+.m3-hyperparams summary {
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.m3-hyperparams[open] summary {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.m3-hyperparam-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+}
+
+/* Adapter grid */
+.m3-adapter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.m3-adapter-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.m3-adapter-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.m3-adapter-name {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+}
+.m3-adapter-meta {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.m3-adapter-actions {
+  margin-top: 6px;
+}
+.m3-adapter-actions .mode-btn {
+  font-size: 8px;
+  padding: 2px 8px;
+}
+.m3-adapter-actions .mode-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}

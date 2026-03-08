@@ -1,0 +1,10 @@
+{
+  "pipelines": {},
+  "training_jobs": {},
+  "adapters": {},
+  "config": {
+    "max_loaded_models": 2,
+    "default_step_timeout": 120,
+    "ollama_url": "http://ollama:11434"
+  }
+}

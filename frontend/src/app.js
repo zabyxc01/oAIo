@@ -25,6 +25,7 @@ let graph     = null;
 let canvas    = null;
 let _lgReady  = false;
 let _fleetInitialized = false;
+let _m3Initialized = false;
 
 // --- Auth token support ---
 let _apiToken = localStorage.getItem('oaio-api-token') || '';
@@ -391,6 +392,10 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     if (btn.dataset.tab === "config") {
       initLiteGraph();
       requestAnimationFrame(() => { resizeNodeCanvas(); drawGroupBoxes(); renderConnectionMap(); });
+    }
+    if (btn.dataset.tab === "m3" && !_m3Initialized) {
+      _m3Initialized = true;
+      initM3Tab();
     }
     if (btn.dataset.tab === "fleet" && !_fleetInitialized) {
       _fleetInitialized = true;
@@ -4841,4 +4846,491 @@ window.addEventListener("resize", _redrawBench);
     }
   });
 })();
+
+// ─── M³ Tab ──────────────────────────────────────────────────────
+
+let _m3Ws = null;
+let _m3OllamaModels = [];
+let _m3EditingPipelineId = null;
+let _m3RunningPipelineId = null;
+
+function initM3Tab() {
+  // Pipeline buttons
+  document.getElementById("m3-new-pipeline-btn").addEventListener("click", () => m3ShowBuilder());
+  document.getElementById("m3-add-step-btn").addEventListener("click", m3AddStep);
+  document.getElementById("m3-builder-cancel").addEventListener("click", m3HideBuilder);
+  document.getElementById("m3-builder-save").addEventListener("click", m3SavePipeline);
+  document.getElementById("m3-runner-close").addEventListener("click", m3HideRunner);
+  document.getElementById("m3-runner-run").addEventListener("click", () => {
+    if (_m3RunningPipelineId) m3RunPipeline(_m3RunningPipelineId);
+  });
+
+  // Training buttons
+  document.getElementById("m3-new-job-btn").addEventListener("click", m3ShowNewJob);
+  document.getElementById("m3-job-cancel").addEventListener("click", m3HideNewJob);
+  document.getElementById("m3-job-create").addEventListener("click", m3CreateJob);
+
+  // Method selector: show/hide LoRA fields
+  document.getElementById("m3-job-method").addEventListener("change", m3UpdateLoraFields);
+
+  // Delegated events on pipeline list
+  document.getElementById("m3-pipeline-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id = btn.dataset.id;
+    if (action === "run") m3ShowRunner(id);
+    else if (action === "edit") m3ShowBuilder(id);
+    else if (action === "delete") m3DeletePipeline(id);
+  });
+
+  // Delegated events on training list
+  document.getElementById("m3-training-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id = btn.dataset.id;
+    if (action === "start") m3StartJob(id);
+    else if (action === "cancel") m3CancelJob(id);
+    else if (action === "delete") m3DeleteJob(id);
+  });
+
+  // Delegated events on adapter list
+  document.getElementById("m3-adapter-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    if (btn.dataset.action === "convert") {
+      // placeholder — future implementation
+    }
+  });
+
+  // Load data
+  loadM3OllamaModels();
+  loadM3Pipelines();
+  loadM3TrainingJobs();
+  loadM3Adapters();
+  m3ConnectWs();
+}
+
+function m3ConnectWs() {
+  if (_m3Ws) { _m3Ws.onclose = null; _m3Ws.close(); }
+  _m3Ws = new WebSocket(_wsUrl('/extensions/m3/ws'));
+  _m3Ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "pipelines") renderM3Pipelines(msg.data);
+      else if (msg.type === "training_jobs") renderM3TrainingJobs(msg.data);
+      else if (msg.type === "adapters") renderM3Adapters(msg.data);
+      else if (msg.type === "run_step") m3RenderRunStep(msg.data);
+      else if (msg.type === "run_complete") m3RenderRunComplete(msg.data);
+      else if (msg.type === "run_error") m3RenderRunError(msg.data);
+    } catch {}
+  };
+  _m3Ws.onclose = () => setTimeout(m3ConnectWs, 3000);
+}
+
+async function loadM3OllamaModels() {
+  try {
+    const r = await _fetch(`${OLLMO_API}/services/ollama/models`);
+    if (!r.ok) return;
+    const data = await r.json();
+    _m3OllamaModels = Array.isArray(data) ? data : (data.models || []);
+  } catch {}
+}
+
+function m3ModelOptions(selectedModel) {
+  if (!_m3OllamaModels.length) return '<option value="">No models loaded</option>';
+  return _m3OllamaModels.map(m => {
+    const name = typeof m === "string" ? m : (m.name || m.model || "");
+    const sel = name === selectedModel ? " selected" : "";
+    return `<option value="${_esc(name)}"${sel}>${_esc(name)}</option>`;
+  }).join("");
+}
+
+// ── Pipelines ────────────────────────────────────────────────────
+
+async function loadM3Pipelines() {
+  try {
+    const r = await _fetch(`${OLLMO_API}/extensions/m3/pipelines`);
+    if (!r.ok) return;
+    const data = await r.json();
+    renderM3Pipelines(Array.isArray(data) ? data : []);
+  } catch {}
+}
+
+function renderM3Pipelines(pipelines) {
+  const el = document.getElementById("m3-pipeline-list");
+  if (!pipelines || !pipelines.length) {
+    el.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No pipelines. Click + NEW to create one.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="m3-pipeline-grid">' + pipelines.map(p => {
+    const stepCount = (p.steps || []).length;
+    const models = [...new Set((p.steps || []).map(s => s.model))].join(", ");
+    return `<div class="m3-pipeline-card">` +
+      `<div class="m3-pipeline-header">` +
+        `<span class="m3-pipeline-name">${_esc(p.name)}</span>` +
+        `<span class="m3-step-badge">${stepCount} step${stepCount !== 1 ? "s" : ""}</span>` +
+      `</div>` +
+      (p.description ? `<div class="m3-pipeline-desc">${_esc(p.description)}</div>` : "") +
+      `<div class="m3-pipeline-models">${_esc(models)}</div>` +
+      `<div class="m3-pipeline-actions">` +
+        `<button class="mode-btn m3-accent" data-action="run" data-id="${_esc(p.id)}">RUN</button>` +
+        `<button class="mode-btn" data-action="edit" data-id="${_esc(p.id)}">EDIT</button>` +
+        `<button class="mode-btn m3-danger" data-action="delete" data-id="${_esc(p.id)}">DELETE</button>` +
+      `</div>` +
+    `</div>`;
+  }).join("") + '</div>';
+}
+
+function m3ShowBuilder(pipelineId) {
+  _m3EditingPipelineId = pipelineId || null;
+  const card = document.getElementById("card-m3-builder");
+  const titleEl = document.getElementById("m3-builder-title");
+  const nameInput = document.getElementById("m3-builder-name");
+  const descInput = document.getElementById("m3-builder-desc");
+  const stepsEl = document.getElementById("m3-builder-steps");
+
+  card.classList.remove("hidden");
+
+  if (pipelineId) {
+    titleEl.textContent = "EDIT PIPELINE";
+    // Fetch pipeline data
+    _fetch(`${OLLMO_API}/extensions/m3/pipelines/${pipelineId}`)
+      .then(r => r.json())
+      .then(p => {
+        nameInput.value = p.name || "";
+        descInput.value = p.description || "";
+        stepsEl.innerHTML = "";
+        (p.steps || []).forEach((s, i) => m3AddStep(null, s));
+      }).catch(() => {});
+  } else {
+    titleEl.textContent = "NEW PIPELINE";
+    nameInput.value = "";
+    descInput.value = "";
+    stepsEl.innerHTML = "";
+    m3AddStep();
+  }
+}
+
+function m3HideBuilder() {
+  document.getElementById("card-m3-builder").classList.add("hidden");
+  _m3EditingPipelineId = null;
+}
+
+function m3AddStep(e, stepData) {
+  const stepsEl = document.getElementById("m3-builder-steps");
+  const idx = stepsEl.children.length + 1;
+  const div = document.createElement("div");
+  div.className = "m3-step-row";
+  div.innerHTML =
+    `<div class="m3-step-number">${idx}</div>` +
+    `<div class="m3-step-fields">` +
+      `<select class="m3-select m3-step-model">${m3ModelOptions(stepData ? stepData.model : "")}</select>` +
+      `<textarea class="m3-textarea m3-step-prompt" rows="2" placeholder="{{input}} will be replaced with previous step output">${_esc(stepData ? stepData.prompt : "")}</textarea>` +
+      `<div class="m3-step-temp-row">` +
+        `<label class="m3-label" style="font-size:9px">Temp</label>` +
+        `<input type="range" class="m3-step-temp" min="0" max="2" step="0.1" value="${stepData ? stepData.temperature : 0.7}" />` +
+        `<span class="m3-step-temp-val">${stepData ? stepData.temperature : 0.7}</span>` +
+      `</div>` +
+    `</div>` +
+    `<button class="mode-btn m3-danger m3-step-remove" title="Remove step">&times;</button>`;
+
+  // Wire temp slider display
+  const slider = div.querySelector(".m3-step-temp");
+  const valSpan = div.querySelector(".m3-step-temp-val");
+  slider.addEventListener("input", () => { valSpan.textContent = slider.value; });
+
+  // Wire remove button
+  div.querySelector(".m3-step-remove").addEventListener("click", () => {
+    div.remove();
+    m3RenumberSteps();
+  });
+
+  stepsEl.appendChild(div);
+}
+
+function m3RenumberSteps() {
+  const stepsEl = document.getElementById("m3-builder-steps");
+  stepsEl.querySelectorAll(".m3-step-row").forEach((row, i) => {
+    row.querySelector(".m3-step-number").textContent = i + 1;
+  });
+}
+
+async function m3SavePipeline() {
+  const name = document.getElementById("m3-builder-name").value.trim();
+  if (!name) return;
+  const desc = document.getElementById("m3-builder-desc").value.trim();
+  const stepsEl = document.getElementById("m3-builder-steps");
+  const steps = [];
+  stepsEl.querySelectorAll(".m3-step-row").forEach(row => {
+    steps.push({
+      model: row.querySelector(".m3-step-model").value,
+      prompt: row.querySelector(".m3-step-prompt").value,
+      temperature: parseFloat(row.querySelector(".m3-step-temp").value),
+    });
+  });
+  const body = { name, description: desc, steps };
+  try {
+    if (_m3EditingPipelineId) {
+      await _fetch(`${OLLMO_API}/extensions/m3/pipelines/${_m3EditingPipelineId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } else {
+      await _fetch(`${OLLMO_API}/extensions/m3/pipelines`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+    m3HideBuilder();
+    loadM3Pipelines();
+  } catch {}
+}
+
+async function m3DeletePipeline(id) {
+  if (!confirm("Delete this pipeline?")) return;
+  try {
+    await _fetch(`${OLLMO_API}/extensions/m3/pipelines/${id}`, { method: "DELETE" });
+    loadM3Pipelines();
+  } catch {}
+}
+
+// ── Pipeline Runner ──────────────────────────────────────────────
+
+function m3ShowRunner(pipelineId) {
+  _m3RunningPipelineId = pipelineId;
+  const card = document.getElementById("card-m3-runner");
+  const titleEl = document.getElementById("m3-runner-title");
+  const resultsEl = document.getElementById("m3-runner-results");
+  const inputEl = document.getElementById("m3-runner-input");
+
+  card.classList.remove("hidden");
+  resultsEl.innerHTML = "";
+  inputEl.value = "";
+
+  // Get pipeline name
+  _fetch(`${OLLMO_API}/extensions/m3/pipelines/${pipelineId}`)
+    .then(r => r.json())
+    .then(p => { titleEl.textContent = "RUN: " + (p.name || "Pipeline"); })
+    .catch(() => { titleEl.textContent = "RUN PIPELINE"; });
+}
+
+function m3HideRunner() {
+  document.getElementById("card-m3-runner").classList.add("hidden");
+  _m3RunningPipelineId = null;
+}
+
+async function m3RunPipeline(id) {
+  const input = document.getElementById("m3-runner-input").value.trim();
+  if (!input) return;
+  const resultsEl = document.getElementById("m3-runner-results");
+  resultsEl.innerHTML = '<div class="m3-run-loading">Running pipeline...</div>';
+
+  try {
+    const r = await _fetch(`${OLLMO_API}/extensions/m3/pipelines/${id}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input }),
+    });
+    if (!r.ok) {
+      resultsEl.innerHTML = `<div class="m3-run-error">Error: ${_esc(r.statusText)}</div>`;
+      return;
+    }
+    const data = await r.json();
+    if (data.steps) {
+      resultsEl.innerHTML = "";
+      data.steps.forEach((s, i) => {
+        m3RenderRunStep({ step: i + 1, model: s.model, duration: s.duration, output: s.output, total: data.steps.length });
+      });
+      if (data.final_output !== undefined) {
+        m3RenderRunComplete({ output: data.final_output });
+      }
+    }
+  } catch (err) {
+    resultsEl.innerHTML = `<div class="m3-run-error">Error: ${_esc(err.message)}</div>`;
+  }
+}
+
+function m3RenderRunStep(data) {
+  const resultsEl = document.getElementById("m3-runner-results");
+  // Remove loading indicator
+  const loading = resultsEl.querySelector(".m3-run-loading");
+  if (loading) loading.remove();
+
+  const div = document.createElement("div");
+  div.className = "m3-run-step";
+  div.innerHTML =
+    `<div class="m3-run-step-header">` +
+      `<span class="m3-step-badge">Step ${data.step}${data.total ? "/" + data.total : ""}</span>` +
+      `<span class="m3-run-model">${_esc(data.model)}</span>` +
+      (data.duration ? `<span class="m3-run-duration">${data.duration.toFixed(1)}s</span>` : "") +
+    `</div>` +
+    `<pre class="m3-run-output"><code>${_esc(data.output)}</code></pre>`;
+  resultsEl.appendChild(div);
+}
+
+function m3RenderRunComplete(data) {
+  const resultsEl = document.getElementById("m3-runner-results");
+  const div = document.createElement("div");
+  div.className = "m3-run-final";
+  div.innerHTML =
+    `<div class="m3-run-step-header"><span class="m3-step-badge m3-final-badge">FINAL OUTPUT</span></div>` +
+    `<pre class="m3-run-output m3-final-output"><code>${_esc(data.output)}</code></pre>`;
+  resultsEl.appendChild(div);
+}
+
+function m3RenderRunError(data) {
+  const resultsEl = document.getElementById("m3-runner-results");
+  const loading = resultsEl.querySelector(".m3-run-loading");
+  if (loading) loading.remove();
+  const div = document.createElement("div");
+  div.className = "m3-run-error";
+  div.textContent = "Error: " + (data.error || "Unknown error");
+  resultsEl.appendChild(div);
+}
+
+// ── Training ─────────────────────────────────────────────────────
+
+async function loadM3TrainingJobs() {
+  try {
+    const r = await _fetch(`${OLLMO_API}/extensions/m3/training/jobs`);
+    if (!r.ok) return;
+    const data = await r.json();
+    renderM3TrainingJobs(Array.isArray(data) ? data : []);
+  } catch {}
+}
+
+function renderM3TrainingJobs(jobs) {
+  const el = document.getElementById("m3-training-list");
+  if (!jobs || !jobs.length) {
+    el.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No training jobs.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="m3-training-grid">' + jobs.map(j => {
+    const statusClass = "m3-status-" + (j.status || "created");
+    const methodClass = "m3-method-" + (j.method || "qlora");
+    const progress = j.progress || 0;
+    const isRunning = j.status === "running";
+    return `<div class="m3-training-card">` +
+      `<div class="m3-training-header">` +
+        `<span class="m3-training-name">${_esc(j.name)}</span>` +
+        `<span class="m3-method-badge ${methodClass}">${_esc((j.method || "qlora").toUpperCase())}</span>` +
+        `<span class="m3-status-badge ${statusClass}">${_esc((j.status || "created").toUpperCase())}</span>` +
+      `</div>` +
+      `<div class="m3-training-meta">Base: ${_esc(j.base_model || "—")}</div>` +
+      (isRunning ? `<div class="m3-progress-bar"><div class="m3-progress-fill" style="width:${Math.min(progress, 100)}%"></div></div>` +
+        `<div class="m3-training-meta">${progress.toFixed(1)}%</div>` : "") +
+      `<div class="m3-training-actions">` +
+        (j.status === "created" || j.status === "queued" ? `<button class="mode-btn m3-accent" data-action="start" data-id="${_esc(j.id)}">START</button>` : "") +
+        (isRunning ? `<button class="mode-btn m3-danger" data-action="cancel" data-id="${_esc(j.id)}">CANCEL</button>` : "") +
+        (j.status !== "running" ? `<button class="mode-btn m3-danger" data-action="delete" data-id="${_esc(j.id)}">DELETE</button>` : "") +
+      `</div>` +
+    `</div>`;
+  }).join("") + '</div>';
+}
+
+function m3ShowNewJob() {
+  document.getElementById("card-m3-training-new").classList.remove("hidden");
+  // Populate model selector
+  document.getElementById("m3-job-model").innerHTML = m3ModelOptions("");
+  m3UpdateLoraFields();
+}
+
+function m3HideNewJob() {
+  document.getElementById("card-m3-training-new").classList.add("hidden");
+}
+
+function m3UpdateLoraFields() {
+  const method = document.getElementById("m3-job-method").value;
+  const showLora = method === "qlora" || method === "lora";
+  document.querySelectorAll(".m3-lora-field").forEach(el => {
+    el.style.display = showLora ? "" : "none";
+  });
+}
+
+async function m3CreateJob() {
+  const name = document.getElementById("m3-job-name").value.trim();
+  if (!name) return;
+  const body = {
+    name,
+    base_model: document.getElementById("m3-job-model").value,
+    method: document.getElementById("m3-job-method").value,
+    dataset: document.getElementById("m3-job-dataset").value.trim(),
+    hyperparams: {
+      epochs: parseInt(document.getElementById("m3-job-epochs").value),
+      learning_rate: document.getElementById("m3-job-lr").value,
+      batch_size: parseInt(document.getElementById("m3-job-batch").value),
+      lora_r: parseInt(document.getElementById("m3-job-lora-r").value),
+      lora_alpha: parseInt(document.getElementById("m3-job-lora-alpha").value),
+    },
+  };
+  try {
+    await _fetch(`${OLLMO_API}/extensions/m3/training/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    m3HideNewJob();
+    loadM3TrainingJobs();
+  } catch {}
+}
+
+async function m3StartJob(id) {
+  try {
+    await _fetch(`${OLLMO_API}/extensions/m3/training/jobs/${id}/start`, { method: "POST" });
+    loadM3TrainingJobs();
+  } catch {}
+}
+
+async function m3CancelJob(id) {
+  try {
+    await _fetch(`${OLLMO_API}/extensions/m3/training/jobs/${id}/cancel`, { method: "POST" });
+    loadM3TrainingJobs();
+  } catch {}
+}
+
+async function m3DeleteJob(id) {
+  if (!confirm("Delete this training job?")) return;
+  try {
+    await _fetch(`${OLLMO_API}/extensions/m3/training/jobs/${id}`, { method: "DELETE" });
+    loadM3TrainingJobs();
+  } catch {}
+}
+
+// ── Adapters ─────────────────────────────────────────────────────
+
+async function loadM3Adapters() {
+  try {
+    const r = await _fetch(`${OLLMO_API}/extensions/m3/training/adapters`);
+    if (!r.ok) return;
+    const data = await r.json();
+    renderM3Adapters(Array.isArray(data) ? data : []);
+  } catch {}
+}
+
+function renderM3Adapters(adapters) {
+  const el = document.getElementById("m3-adapter-list");
+  if (!adapters || !adapters.length) {
+    el.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No adapters found.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="m3-adapter-grid">' + adapters.map(a => {
+    const methodClass = "m3-method-" + (a.method || "lora");
+    return `<div class="m3-adapter-card">` +
+      `<div class="m3-adapter-header">` +
+        `<span class="m3-adapter-name">${_esc(a.name)}</span>` +
+        `<span class="m3-method-badge ${methodClass}">${_esc((a.method || "lora").toUpperCase())}</span>` +
+      `</div>` +
+      `<div class="m3-adapter-meta">Base: ${_esc(a.base_model || "—")}</div>` +
+      (a.size ? `<div class="m3-adapter-meta">Size: ${_esc(a.size)}</div>` : "") +
+      (a.date ? `<div class="m3-adapter-meta">Date: ${_esc(a.date)}</div>` : "") +
+      `<div class="m3-adapter-actions">` +
+        `<button class="mode-btn" data-action="convert" data-id="${_esc(a.id)}" title="Convert to Ollama model (coming soon)" disabled>CONVERT TO OLLAMA</button>` +
+      `</div>` +
+    `</div>`;
+  }).join("") + '</div>';
+}
 

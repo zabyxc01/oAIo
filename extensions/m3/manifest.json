@@ -1,0 +1,15 @@
+{
+  "name": "m3",
+  "version": "0.1.0",
+  "description": "M\u00b3 \u2014 Multi-Model Mode: inference pipelines and training job management",
+  "author": "oAIo",
+  "enabled": true,
+  "backend": {
+    "router": "backend.py",
+    "prefix": "/extensions/m3"
+  },
+  "frontend": {
+    "nodes": ["nodes.js"]
+  },
+  "services": []
+}

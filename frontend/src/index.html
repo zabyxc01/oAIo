@@ -23,6 +23,7 @@
     <div class="tab-nav-left">
       <button class="tab-btn active" data-tab="live">LIVE</button>
       <button class="tab-btn" data-tab="config">CONFIG</button>
+      <button class="tab-btn" data-tab="m3">M&sup3;</button>
       <button class="tab-btn" data-tab="fleet">FLEET</button>
       <button class="tab-btn" data-tab="advanced">ADVANCED</button>
       <button class="tab-btn" data-tab="api">API</button>
@@ -735,6 +736,155 @@
     </div>
   </div>
 
+  <!-- ══ TAB: M³ ═══════════════════════════════════════════ -->
+  <div id="tab-m3" class="tab-content">
+    <div class="tab-grid">
+
+      <!-- PIPELINES -->
+      <div class="card card-full" id="card-m3-pipelines">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          PIPELINES
+          <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">&#183; multi-model chains</span>
+          <div style="flex:1"></div>
+          <button class="mode-btn m3-accent" id="m3-new-pipeline-btn">+ NEW</button>
+        </div>
+        <div id="m3-pipeline-list">
+          <div class="dim" style="font-size:9px;padding:8px">No pipelines. Click + NEW to create one.</div>
+        </div>
+      </div>
+
+      <!-- PIPELINE BUILDER (hidden by default) -->
+      <div class="card card-full hidden" id="card-m3-builder">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          <span id="m3-builder-title">NEW PIPELINE</span>
+          <div style="flex:1"></div>
+        </div>
+        <div class="m3-builder-form">
+          <div class="m3-form-row">
+            <label class="m3-label">Name</label>
+            <input type="text" id="m3-builder-name" class="m3-input" placeholder="e.g. summarize-then-critique" />
+          </div>
+          <div class="m3-form-row">
+            <label class="m3-label">Description</label>
+            <input type="text" id="m3-builder-desc" class="m3-input" placeholder="optional description" />
+          </div>
+          <div class="m3-form-row">
+            <label class="m3-label" style="align-self:flex-start;padding-top:4px">Steps</label>
+            <div style="flex:1">
+              <div id="m3-builder-steps"></div>
+              <button class="mode-btn m3-accent" id="m3-add-step-btn" style="margin-top:6px">+ ADD STEP</button>
+            </div>
+          </div>
+          <div class="m3-builder-actions">
+            <button class="mode-btn" id="m3-builder-cancel">CANCEL</button>
+            <button class="mode-btn m3-accent" id="m3-builder-save">SAVE PIPELINE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PIPELINE RUNNER (hidden by default) -->
+      <div class="card card-full hidden" id="card-m3-runner">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          <span id="m3-runner-title">RUN PIPELINE</span>
+          <div style="flex:1"></div>
+          <button class="mode-btn" id="m3-runner-close">CLOSE</button>
+        </div>
+        <div class="m3-form-row">
+          <label class="m3-label" style="align-self:flex-start;padding-top:4px">Input</label>
+          <textarea id="m3-runner-input" class="m3-textarea" rows="4" placeholder="Enter your input text here..."></textarea>
+        </div>
+        <div class="m3-builder-actions">
+          <button class="mode-btn m3-accent" id="m3-runner-run">RUN</button>
+        </div>
+        <div id="m3-runner-results"></div>
+      </div>
+
+      <!-- TRAINING JOBS -->
+      <div class="card card-full" id="card-m3-training">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          TRAINING
+          <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">&#183; fine-tuning jobs</span>
+          <div style="flex:1"></div>
+          <button class="mode-btn m3-accent" id="m3-new-job-btn">+ NEW JOB</button>
+        </div>
+        <div id="m3-training-list">
+          <div class="dim" style="font-size:9px;padding:8px">No training jobs.</div>
+        </div>
+      </div>
+
+      <!-- NEW TRAINING JOB (hidden by default) -->
+      <div class="card card-full hidden" id="card-m3-training-new">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          NEW TRAINING JOB
+          <div style="flex:1"></div>
+        </div>
+        <div class="m3-builder-form">
+          <div class="m3-form-row">
+            <label class="m3-label">Job Name</label>
+            <input type="text" id="m3-job-name" class="m3-input" placeholder="e.g. customer-support-finetune" />
+          </div>
+          <div class="m3-form-row">
+            <label class="m3-label">Base Model</label>
+            <select id="m3-job-model" class="m3-select"></select>
+          </div>
+          <div class="m3-form-row">
+            <label class="m3-label">Method</label>
+            <select id="m3-job-method" class="m3-select">
+              <option value="qlora">QLoRA</option>
+              <option value="lora">LoRA</option>
+              <option value="full">Full</option>
+            </select>
+          </div>
+          <div class="m3-form-row">
+            <label class="m3-label">Dataset Path</label>
+            <input type="text" id="m3-job-dataset" class="m3-input" placeholder="/path/to/dataset.jsonl" />
+          </div>
+          <details class="m3-hyperparams">
+            <summary class="m3-label" style="cursor:pointer;color:var(--purple)">Hyperparameters</summary>
+            <div class="m3-hyperparam-grid">
+              <div class="m3-form-row">
+                <label class="m3-label">Epochs</label>
+                <input type="number" id="m3-job-epochs" class="m3-input-sm" value="3" min="1" />
+              </div>
+              <div class="m3-form-row">
+                <label class="m3-label">Learning Rate</label>
+                <input type="text" id="m3-job-lr" class="m3-input-sm" value="2e-4" />
+              </div>
+              <div class="m3-form-row">
+                <label class="m3-label">Batch Size</label>
+                <input type="number" id="m3-job-batch" class="m3-input-sm" value="4" min="1" />
+              </div>
+              <div class="m3-form-row m3-lora-field">
+                <label class="m3-label">LoRA R</label>
+                <input type="number" id="m3-job-lora-r" class="m3-input-sm" value="16" min="1" />
+              </div>
+              <div class="m3-form-row m3-lora-field">
+                <label class="m3-label">LoRA Alpha</label>
+                <input type="number" id="m3-job-lora-alpha" class="m3-input-sm" value="32" min="1" />
+              </div>
+            </div>
+          </details>
+          <div class="m3-builder-actions">
+            <button class="mode-btn" id="m3-job-cancel">CANCEL</button>
+            <button class="mode-btn m3-accent" id="m3-job-create">CREATE JOB</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ADAPTERS -->
+      <div class="card card-full" id="card-m3-adapters">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          ADAPTERS
+          <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">&#183; saved LoRA weights</span>
+        </div>
+        <div id="m3-adapter-list">
+          <div class="dim" style="font-size:9px;padding:8px">No adapters found.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ══ TAB: FLEET ═════════════════════════════════════════ -->
   <div id="tab-fleet" class="tab-content">
     <div class="tab-grid">
@@ -850,6 +1000,7 @@
         <div class="settings-group" style="gap:4px;font-size:11px">
           <div><b style="color:var(--accent)">LIVE</b> <span class="dim">&mdash;</span> Real-time dashboard: modes, services, enforcement, benchmark, API monitor.</div>
           <div><b style="color:var(--accent)">CONFIG</b> <span class="dim">&mdash;</span> LiteGraph node editor: wire services, manage modes, configure resources.</div>
+          <div><b style="color:var(--purple)">M&sup3;</b> <span class="dim">&mdash;</span> MultiModelMode: chain models into pipelines, fine-tune with LoRA/QLoRA, manage adapters.</div>
           <div><b style="color:var(--accent)">ADVANCED</b> <span class="dim">&mdash;</span> Disk map, port map, volume map, connection map, templates.</div>
           <div><b style="color:var(--accent)">API</b> <span class="dim">&mdash;</span> How-it-works guide, live topology, OpenAPI endpoints, request monitor.</div>
           <div><b style="color:var(--accent)">SETTINGS</b> <span class="dim">&mdash;</span> Theme, layout, background, behavior, workflow saves, data export.</div>
