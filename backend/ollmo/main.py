@@ -717,43 +717,48 @@ async def _scan_service(base_url: str, service_name: str) -> dict:
                         gradio_endpoints.append(ep)
                         endpoints.append(ep)
 
-        # ── OpenAI-compatible detection ───────────────────────────────────
+        # ── OpenAI-compatible detection (skip if OpenAPI already found full spec)
         openai_compat = False
-        ok_models, code_models, body_models = await _probe_get(client, f"{base_url}/v1/models")
-        if ok_models and code_models == 200 and isinstance(body_models, dict) and body_models.get("object") == "list":
-            print(f"[Scanner] {service_name}: OpenAI-compatible API detected")
-            openai_compat = True
-            if not openapi_found and not gradio_found:
-                result["api_type"] = "openai_compat"
+        if not openapi_found:
+            ok_models, code_models, body_models = await _probe_get(client, f"{base_url}/v1/models")
+            if ok_models and code_models == 200 and isinstance(body_models, dict) and body_models.get("object") == "list":
+                print(f"[Scanner] {service_name}: OpenAI-compatible API detected")
+                openai_compat = True
+                if not gradio_found:
+                    result["api_type"] = "openai_compat"
 
-            # Probe known OpenAI endpoints
-            openai_probes = [
-                ("/v1/chat/completions", "POST", "Chat completions"),
-                ("/v1/audio/speech", "POST", "Text-to-speech"),
-                ("/v1/embeddings", "POST", "Embeddings"),
-                ("/v1/completions", "POST", "Text completions"),
-            ]
-            for path, method, summary in openai_probes:
-                reachable, scode = await _probe_post_empty(client, f"{base_url}{path}")
-                if reachable and scode < 500:
-                    print(f"[Scanner] {service_name}:   {path} responds ({scode})")
+                # Probe known OpenAI endpoints — only add if they return 2xx or 422 (valid schema error)
+                openai_probes = [
+                    ("/v1/chat/completions", "POST", "Chat completions"),
+                    ("/v1/audio/speech", "POST", "Text-to-speech"),
+                    ("/v1/embeddings", "POST", "Embeddings"),
+                    ("/v1/completions", "POST", "Text completions"),
+                ]
+                for path, method, summary in openai_probes:
+                    # Skip if already discovered
+                    if any(ep["path"] == path for ep in endpoints):
+                        continue
+                    reachable, scode = await _probe_post_empty(client, f"{base_url}{path}")
+                    if reachable and (scode < 300 or scode in (400, 422)):
+                        print(f"[Scanner] {service_name}:   {path} responds ({scode})")
+                        endpoints.append({
+                            "method": method,
+                            "path": path,
+                            "summary": summary,
+                            "parameters": [],
+                            "tags": ["openai"],
+                            "source": "openai_compat",
+                        })
+                # Also add /v1/models as GET
+                if not any(ep["path"] == "/v1/models" for ep in endpoints):
                     endpoints.append({
-                        "method": method,
-                        "path": path,
-                        "summary": summary,
+                        "method": "GET",
+                        "path": "/v1/models",
+                        "summary": "List models",
                         "parameters": [],
                         "tags": ["openai"],
                         "source": "openai_compat",
                     })
-            # Also add /v1/models as GET
-            endpoints.append({
-                "method": "GET",
-                "path": "/v1/models",
-                "summary": "List models",
-                "parameters": [],
-                "tags": ["openai"],
-                "source": "openai_compat",
-            })
 
         # ── Generic probing ───────────────────────────────────────────────
         generic_probes = [
@@ -771,7 +776,7 @@ async def _scan_service(base_url: str, service_name: str) -> dict:
             if any(ep["path"] == path for ep in endpoints):
                 continue
             reachable, gcode, _ = await _probe_get(client, f"{base_url}{path}")
-            if reachable and gcode < 500:
+            if reachable and 200 <= gcode < 300:
                 print(f"[Scanner] {service_name}:   {path} responds ({gcode})")
                 endpoints.append({
                     "method": "GET",
