@@ -1,5 +1,162 @@
 {
-  "nodes": {},
+  "nodes": {
+    "9764188f": {
+      "id": "9764188f",
+      "name": "sys-pandora-oao",
+      "url": "http://127.0.0.1:9000",
+      "tags": [],
+      "registered_at": "2026-03-08T08:53:09.407841+00:00",
+      "last_seen": "2026-03-08T09:19:30.233143+00:00",
+      "reachable": true,
+      "capabilities": {
+        "ollama": {
+          "container": "ollama",
+          "port": 11434,
+          "vram_est_gb": 7.5,
+          "ram_est_gb": 7.2,
+          "priority": 1,
+          "limit_mode": "hard",
+          "auto_restore": false,
+          "group": "oLLM",
+          "memory_mode": "vram",
+          "bus_preference": "sata",
+          "boot_with_system": true,
+          "description": "LLM backend",
+          "capabilities": [
+            {
+              "type": "models",
+              "label": "LLM Model",
+              "endpoint": "/services/ollama/models",
+              "node_type": "oAIo/llm-model",
+              "action_endpoint": "/services/ollama/models/{id}/load",
+              "action_method": "POST"
+            }
+          ]
+        },
+        "open-webui": {
+          "container": "open-webui",
+          "port": 3000,
+          "vram_est_gb": 0,
+          "ram_est_gb": 1.3,
+          "priority": 4,
+          "limit_mode": "hard",
+          "auto_restore": false,
+          "group": "oLLM",
+          "memory_mode": "ram",
+          "boot_with_system": true,
+          "description": "LLM chat UI",
+          "capabilities": []
+        },
+        "kokoro-tts": {
+          "container": "kokoro-tts",
+          "port": 8000,
+          "vram_est_gb": 0,
+          "ram_est_gb": 0.8,
+          "priority": 2,
+          "limit_mode": "hard",
+          "auto_restore": false,
+          "group": "oAudio",
+          "memory_mode": "ram",
+          "boot_with_system": true,
+          "description": "TTS base voice \u2014 Kokoro ONNX",
+          "capabilities": [
+            {
+              "type": "voices",
+              "label": "TTS Voice",
+              "endpoint": "/services/kokoro-tts/voices",
+              "node_type": "oAIo/tts-voice",
+              "action_endpoint": null,
+              "action_method": null
+            }
+          ]
+        },
+        "rvc": {
+          "container": "rvc",
+          "port": 8001,
+          "vram_est_gb": 3.0,
+          "ram_est_gb": 6.0,
+          "priority": 2,
+          "limit_mode": "hard",
+          "auto_restore": false,
+          "group": "oAudio",
+          "memory_mode": "vram",
+          "bus_preference": "nvme",
+          "boot_with_system": true,
+          "description": "Voice conversion + proxy",
+          "capabilities": [
+            {
+              "type": "voices",
+              "label": "Voice Model",
+              "endpoint": "/services/rvc/models",
+              "node_type": "oAIo/voice-model",
+              "action_endpoint": "/services/rvc/models/{id}/activate",
+              "action_method": "POST"
+            }
+          ]
+        },
+        "f5-tts": {
+          "container": "f5-tts",
+          "port": 7860,
+          "vram_est_gb": 2.0,
+          "ram_est_gb": 1.4,
+          "priority": 5,
+          "limit_mode": "hard",
+          "auto_restore": false,
+          "group": "oAudio",
+          "memory_mode": "vram",
+          "boot_with_system": false,
+          "description": "Voice cloning",
+          "capabilities": []
+        },
+        "comfyui": {
+          "container": "comfyui",
+          "port": 8188,
+          "vram_est_gb": 12.0,
+          "ram_est_gb": 4.0,
+          "priority": 3,
+          "limit_mode": "hard",
+          "auto_restore": false,
+          "group": "Render",
+          "memory_mode": "vram",
+          "bus_preference": "nvme",
+          "boot_with_system": false,
+          "description": "Image generation \u2014 Flux.1-dev",
+          "capabilities": [
+            {
+              "type": "workflows",
+              "label": "Workflow",
+              "endpoint": "/services/comfyui/workflows",
+              "node_type": "oAIo/workflow",
+              "action_endpoint": null,
+              "action_method": null
+            }
+          ]
+        },
+        "styletts2": {
+          "container": "styletts2",
+          "port": 7870,
+          "vram_est_gb": 1.5,
+          "ram_est_gb": 2.0,
+          "priority": 4,
+          "limit_mode": "hard",
+          "group": "oAudio",
+          "description": "Multi-speaker TTS + voice cloning via reference audio",
+          "capabilities": [
+            "tts",
+            "voice-clone"
+          ],
+          "auto_restore": false
+        }
+      },
+      "vram_snapshot": {
+        "used_bytes": 1712648192,
+        "total_bytes": 21458059264,
+        "used_gb": 1.71,
+        "total_gb": 21.46,
+        "percent": 8.0
+      }
+    }
+  },
   "jobs": {
     "99640f79": {
       "id": "99640f79",

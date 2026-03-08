@@ -337,7 +337,7 @@ class SecurityHeadersMiddleware:
             if message.get("type") == "http.response.start":
                 headers = list(message.get("headers", []))
                 headers.append((b"content-security-policy",
-                    b"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'"))
+                    b"default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'"))
                 headers.append((b"x-frame-options", b"DENY"))
                 headers.append((b"x-content-type-options", b"nosniff"))
                 message["headers"] = headers

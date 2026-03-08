@@ -102,21 +102,17 @@ def _now() -> str:
 
 # ─── URL safety ──────────────────────────────────────────────────────────────
 
-_PRIVATE_NETWORKS = (
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
+_BLOCKED_NETWORKS = (
+    ipaddress.ip_network("169.254.0.0/16"),   # link-local (cloud metadata)
+    ipaddress.ip_network("fe80::/10"),         # IPv6 link-local
 )
 
 
 def _is_safe_url(url: str) -> tuple[bool, str]:
     """
     Validate that a node URL uses http(s) and does not resolve to a
-    private/loopback/link-local address (SSRF protection).
+    link-local or metadata address (SSRF protection).
+    Private/loopback IPs are allowed — fleet is designed for LAN + Tailscale.
     Returns (safe, reason).
     """
     parsed = urlparse(url)
@@ -131,9 +127,9 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
         return False, f"Cannot resolve hostname '{hostname}'"
     for _family, _type, _proto, _canonname, sockaddr in infos:
         addr = ipaddress.ip_address(sockaddr[0])
-        for net in _PRIVATE_NETWORKS:
+        for net in _BLOCKED_NETWORKS:
             if addr in net:
-                return False, f"Hostname resolves to private/reserved address {addr}"
+                return False, f"Hostname resolves to blocked address {addr}"
     return True, ""
 
 
