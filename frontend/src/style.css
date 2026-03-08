@@ -2985,3 +2985,179 @@ body.btn-large .tab-btn { padding: 8px 16px; font-size: 13px; }
 
 /* Selection color */
 ::selection { background: rgba(225, 6, 0, 0.3); color: var(--text); }
+
+/* ── Fleet tab ────────────────────────────────────────────────────────────── */
+
+#fleet-node-strip {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  flex-wrap: wrap;
+  min-height: 32px;
+}
+
+#fleet-node-strip .mode-btn {
+  font-size: 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  transition: border-color 0.2s, color 0.2s;
+}
+
+#fleet-node-strip .mode-btn.active {
+  border-color: var(--grp-llm);
+  color: var(--grp-llm);
+}
+
+.svc-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 4px 8px;
+}
+
+.svc-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.svc-card-name {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+}
+
+.svc-card-body {
+  margin-bottom: 6px;
+}
+
+.svc-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.svc-card-actions .mode-btn {
+  font-size: 8px;
+  padding: 2px 8px;
+}
+
+.fleet-section-label {
+  font-size: 9px;
+  font-weight: bold;
+  color: var(--text-dim);
+  padding: 8px 8px 4px;
+  letter-spacing: 1px;
+}
+
+.fleet-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+  padding: 0 8px 8px;
+}
+
+.fleet-mode-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.fleet-mode-card.active {
+  border-color: var(--green);
+}
+
+.fleet-mode-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.fleet-mode-name {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+}
+
+.fleet-mode-status {
+  font-size: 9px;
+  font-weight: bold;
+}
+
+.fleet-mode-meta {
+  font-size: 9px;
+  margin-bottom: 2px;
+}
+
+.fleet-mode-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.fleet-mode-actions .mode-btn {
+  font-size: 8px;
+  padding: 2px 8px;
+}
+
+.fleet-mode-actions .mode-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.fleet-job-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fleet-job-row:last-child {
+  border-bottom: none;
+}
+
+#card-fleet-settings .config-field {
+  padding: 2px 8px;
+}
+
+#card-fleet-settings .config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+#card-fleet-settings .config-row label {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+#card-fleet-settings .config-row select,
+#card-fleet-settings .config-row input[type="number"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-family: monospace;
+}
+
+#card-fleet-settings .config-row input[type="checkbox"] {
+  accent-color: var(--green);
+}
+
+#fleet-remote-services {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px;
+  padding: 4px;
+}
+
+#fleet-remote-services .fleet-section-label {
+  grid-column: 1 / -1;
+}

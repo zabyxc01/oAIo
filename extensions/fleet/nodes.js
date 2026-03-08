@@ -6,12 +6,18 @@
 // ── FleetNode — represents a remote oAIo instance ────────────────────────────
 
 (function () {
+  // CSS custom-property reader with fallback (mirrors capabilities.js pattern)
+  function _cv(name, fb) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fb;
+  }
+
   function FleetNode() {
     this.addOutput("status", "string");
     this.addOutput("vram",   "number");
     this.title   = "Fleet Node";
-    this.color   = "#1a1a2e";
-    this.bgcolor = "#12122a";
+    this.color   = _cv("--bg3", "#161616");
+    this.bgcolor = _cv("--bg2", "#0f0f0f");
     this.size    = [220, 110];
     this.resizable = true;
 
@@ -58,7 +64,7 @@
 
   FleetNode.prototype.onDrawBackground = function (ctx) {
     // Status dot
-    const color = this._reachable ? "#4caf50" : "#666";
+    const color = this._reachable ? _cv("--green", "#00e676") : _cv("--text-dim", "#555");
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(this.size[0] - 14, 14, 5, 0, Math.PI * 2);
@@ -66,7 +72,7 @@
   };
 
   FleetNode.prototype.onDrawForeground = function (ctx) {
-    ctx.fillStyle = "#888";
+    ctx.fillStyle = _cv("--text-dim", "#555");
     ctx.font = "10px monospace";
     const url  = this._url  || "not configured";
     const vram = this._vram
@@ -115,8 +121,8 @@
     this.addInput("node",    "string");
     this.addOutput("result", "string");
     this.title   = "Fleet Job";
-    this.color   = "#1a2e1a";
-    this.bgcolor = "#12221a";
+    this.color   = _cv("--bg3", "#161616");
+    this.bgcolor = _cv("--bg2", "#0f0f0f");
     this.size    = [220, 90];
     this.resizable = true;
 
@@ -133,9 +139,9 @@
   FleetJobNode.title = "Fleet Job";
 
   FleetJobNode.prototype.onDrawForeground = function (ctx) {
-    ctx.fillStyle = this._status === "complete" ? "#4caf50"
-                  : this._status === "failed"   ? "#f44336"
-                  : "#888";
+    ctx.fillStyle = this._status === "complete" ? _cv("--green", "#00e676")
+                  : this._status === "failed"   ? _cv("--red", "#ff1744")
+                  : _cv("--text-dim", "#555");
     ctx.font = "10px monospace";
     ctx.fillText(`Type:   ${this.properties.job_type}`, 8, this.size[1] - 42);
     ctx.fillText(`Target: ${this.properties.target || "—"}`, 8, this.size[1] - 28);

@@ -24,6 +24,7 @@ window.onerror = (msg, src, line) => {
 let graph     = null;
 let canvas    = null;
 let _lgReady  = false;
+let _fleetInitialized = false;
 
 function _loadScripts(urls, cb) {
   if (!urls.length) { cb(); return; }
@@ -319,6 +320,10 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     if (btn.dataset.tab === "config") {
       initLiteGraph();
       requestAnimationFrame(() => { resizeNodeCanvas(); drawGroupBoxes(); renderConnectionMap(); });
+    }
+    if (btn.dataset.tab === "fleet" && !_fleetInitialized) {
+      _fleetInitialized = true;
+      initFleetTab();
     }
   });
 });
@@ -3433,6 +3438,322 @@ async function loadTemplates() {
       el.appendChild(btn);
     });
   } catch {}
+}
+
+// --- Fleet Tab ---
+let _fleetSelectedNode = null;
+let _fleetWs = null;
+
+function initFleetTab() {
+  document.getElementById("fleet-scan-btn").addEventListener("click", fleetScan);
+  document.getElementById("fleet-settings-btn").addEventListener("click", () => {
+    document.getElementById("card-fleet-settings").classList.toggle("hidden");
+  });
+  document.getElementById("fleet-save-settings").addEventListener("click", fleetSaveSettings);
+  document.getElementById("fleet-remote-ping").addEventListener("click", fleetPingSelected);
+  document.getElementById("fleet-remote-remove").addEventListener("click", fleetRemoveSelected);
+  fleetConnectWs();
+  fleetLoadSettings();
+}
+
+function fleetConnectWs() {
+  if (_fleetWs) { _fleetWs.onclose = null; _fleetWs.close(); }
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  _fleetWs = new WebSocket(`${proto}//${location.host}/extensions/fleet/ws`);
+  _fleetWs.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    renderFleetNodes(data.nodes || []);
+    renderFleetJobs(data.jobs || []);
+  };
+  _fleetWs.onclose = () => setTimeout(fleetConnectWs, 3000);
+}
+
+function renderFleetNodes(nodes) {
+  const strip = document.getElementById("fleet-node-strip");
+  if (!strip) return;
+  const statusEl = document.getElementById("fleet-discovery-status");
+  if (statusEl) {
+    statusEl.textContent = `${nodes.length} node${nodes.length !== 1 ? "s" : ""} registered · ${nodes.filter(n => n.reachable).length} online`;
+  }
+  // Preserve selection
+  strip.innerHTML = "";
+  if (nodes.length === 0) {
+    strip.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No fleet nodes. Click SCAN to discover or register via API.</div>';
+    return;
+  }
+  nodes.forEach(n => {
+    const pill = document.createElement("button");
+    pill.className = "mode-btn" + (_fleetSelectedNode === n.id ? " active" : "");
+    pill.dataset.nodeId = n.id;
+    const dot = n.reachable ? "●" : "○";
+    const dotColor = n.reachable ? "var(--green)" : "var(--red)";
+    pill.innerHTML = `<span style="color:${dotColor}">${dot}</span> ${_esc(n.name)}`;
+    pill.addEventListener("click", () => fleetSelectNode(n.id));
+    strip.appendChild(pill);
+  });
+  // If selected node still exists, refresh its detail
+  if (_fleetSelectedNode) {
+    const selected = nodes.find(n => n.id === _fleetSelectedNode);
+    if (selected) updateFleetRemoteHeader(selected);
+  }
+}
+
+async function fleetSelectNode(nodeId) {
+  _fleetSelectedNode = nodeId;
+  // Re-render strip to show active state
+  document.querySelectorAll("#fleet-node-strip .mode-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.nodeId === nodeId);
+  });
+  // Show ping/remove buttons
+  document.getElementById("fleet-remote-ping").classList.remove("hidden");
+  document.getElementById("fleet-remote-remove").classList.remove("hidden");
+  // Fetch full node detail with live status
+  try {
+    const r = await fetch(`${OLLMO_API}/extensions/fleet/nodes/${nodeId}`);
+    const node = await r.json();
+    if (node.error) { showAlert("warning", node.error); return; }
+    updateFleetRemoteHeader(node);
+    renderFleetRemoteModes(node);
+    renderFleetRemoteServices(node);
+  } catch (e) {
+    showAlert("warning", "Failed to fetch node: " + e.message);
+  }
+}
+
+function updateFleetRemoteHeader(node) {
+  document.getElementById("fleet-remote-name").textContent = node.name || node.id;
+  const statusEl = document.getElementById("fleet-remote-status");
+  statusEl.textContent = node.reachable ? "ONLINE" : "OFFLINE";
+  statusEl.style.color = node.reachable ? "var(--green)" : "var(--red)";
+  const vramEl = document.getElementById("fleet-remote-vram");
+  const ramEl = document.getElementById("fleet-remote-ram");
+  if (node.live?.vram) {
+    vramEl.textContent = `${node.live.vram.used_gb}/${node.live.vram.total_gb} GB VRAM`;
+  } else if (node.vram_snapshot) {
+    vramEl.textContent = `${node.vram_snapshot.used_gb || "?"}/${node.vram_snapshot.total_gb || "?"} GB VRAM`;
+  } else {
+    vramEl.textContent = "";
+  }
+  if (node.live?.ram) {
+    ramEl.textContent = `${node.live.ram.used_gb}/${node.live.ram.total_gb} GB RAM`;
+  } else {
+    ramEl.textContent = "";
+  }
+}
+
+function renderFleetRemoteModes(node) {
+  const container = document.getElementById("fleet-remote-modes");
+  if (!container) return;
+  const modesData = node.live?.modes;
+  const activeModes = node.live?.active_modes || [];
+  if (!modesData || typeof modesData !== "object") {
+    container.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No mode data available</div>';
+    return;
+  }
+  // modesData could be {modes: {...}} or just {...}
+  const modes = modesData.modes || modesData;
+  const entries = Object.entries(modes);
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No modes configured on this node</div>';
+    return;
+  }
+  container.innerHTML = '<div class="fleet-section-label">MODES</div>';
+  const grid = document.createElement("div");
+  grid.className = "fleet-mode-grid";
+  entries.forEach(([key, mode]) => {
+    const isActive = activeModes.includes(key);
+    const card = document.createElement("div");
+    card.className = "fleet-mode-card" + (isActive ? " active" : "");
+    const name = mode.name || key;
+    const svcList = (mode.services || []).map(s => _esc(s)).join(", ");
+    card.innerHTML =
+      `<div class="fleet-mode-header">` +
+        `<span class="fleet-mode-name">${_esc(name)}</span>` +
+        `<span class="fleet-mode-status" style="color:${isActive ? "var(--green)" : "var(--text-dim)"}">${isActive ? "ACTIVE" : "IDLE"}</span>` +
+      `</div>` +
+      `<div class="fleet-mode-meta">` +
+        `<span class="dim">${_esc(mode.description || "")}</span>` +
+      `</div>` +
+      `<div class="fleet-mode-meta">` +
+        `<span class="dim">${mode.vram_budget_gb ? mode.vram_budget_gb + " GB budget" : ""}</span>` +
+        `<span class="dim">${svcList ? " · " + svcList : ""}</span>` +
+      `</div>` +
+      `<div class="fleet-mode-actions">` +
+        `<button class="mode-btn fleet-mode-activate" data-mode="${_esc(key)}"${isActive ? " disabled" : ""}>ACTIVATE</button>` +
+        `<button class="mode-btn fleet-mode-deactivate" data-mode="${_esc(key)}"${!isActive ? " disabled" : ""}>DEACTIVATE</button>` +
+      `</div>`;
+    grid.appendChild(card);
+  });
+  container.appendChild(grid);
+  // Wire buttons
+  container.querySelectorAll(".fleet-mode-activate").forEach(btn => {
+    btn.addEventListener("click", () => fleetDispatchJob("mode_activate", btn.dataset.mode));
+  });
+  container.querySelectorAll(".fleet-mode-deactivate").forEach(btn => {
+    btn.addEventListener("click", () => fleetDispatchJob("mode_deactivate", btn.dataset.mode));
+  });
+}
+
+function renderFleetRemoteServices(node) {
+  const container = document.getElementById("fleet-remote-services");
+  if (!container) return;
+  const services = node.live?.services || node.capabilities || {};
+  if (!services || Object.keys(services).length === 0) {
+    container.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No service data available. Node may be offline.</div>';
+    return;
+  }
+  container.innerHTML = '<div class="fleet-section-label">SERVICES</div>';
+  // If services is from capabilities (config/services response), it has service config
+  // If from live.services, it has status info
+  const entries = Array.isArray(services) ? services : Object.entries(services);
+
+  const isConfigFormat = !Array.isArray(services) && typeof services === "object";
+
+  if (isConfigFormat) {
+    Object.entries(services).forEach(([name, svc]) => {
+      const card = document.createElement("div");
+      card.className = "svc-card";
+      const status = svc.status || "unknown";
+      const statusColor = status === "running" ? "var(--green)" : status === "stopped" || status === "exited" ? "var(--red)" : "var(--yellow)";
+      card.innerHTML =
+        `<div class="svc-card-header">` +
+          `<span class="svc-card-name">${_esc(name)}</span>` +
+          `<span style="color:${statusColor};font-size:9px">${_esc(status.toUpperCase())}</span>` +
+        `</div>` +
+        `<div class="svc-card-body">` +
+          `<span class="dim" style="font-size:9px">${_esc(svc.description || "")}` +
+          `${svc.port ? " · :" + _esc(svc.port) : ""}` +
+          `${svc.vram_est_gb ? " · " + _esc(svc.vram_est_gb) + "GB VRAM" : ""}</span>` +
+        `</div>` +
+        `<div class="svc-card-actions">` +
+          `<button class="mode-btn fleet-svc-start" data-svc="${_esc(name)}">START</button>` +
+          `<button class="mode-btn fleet-svc-stop" data-svc="${_esc(name)}">STOP</button>` +
+        `</div>`;
+      container.appendChild(card);
+    });
+  }
+
+  // Wire up start/stop buttons
+  container.querySelectorAll(".fleet-svc-start").forEach(btn => {
+    btn.addEventListener("click", () => fleetDispatchJob("service_start", btn.dataset.svc));
+  });
+  container.querySelectorAll(".fleet-svc-stop").forEach(btn => {
+    btn.addEventListener("click", () => fleetDispatchJob("service_stop", btn.dataset.svc));
+  });
+}
+
+async function fleetDispatchJob(type, target) {
+  if (!_fleetSelectedNode) return;
+  try {
+    const r = await fetch(`${OLLMO_API}/extensions/fleet/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ node_id: _fleetSelectedNode, type, target }),
+    });
+    const job = await r.json();
+    if (job.error) { showAlert("warning", job.error); return; }
+    showAlert(job.status === "complete" ? "info" : "warning", `${type} ${target}: ${job.status}`);
+    // Refresh node view
+    fleetSelectNode(_fleetSelectedNode);
+  } catch (e) {
+    showAlert("warning", "Job dispatch failed: " + e.message);
+  }
+}
+
+function renderFleetJobs(jobs) {
+  const container = document.getElementById("fleet-jobs-list");
+  if (!container) return;
+  if (!jobs || jobs.length === 0) {
+    container.innerHTML = '<div class="dim" style="font-size:9px;padding:8px">No jobs dispatched</div>';
+    return;
+  }
+  container.innerHTML = "";
+  jobs.slice(0, 20).forEach(j => {
+    const row = document.createElement("div");
+    row.className = "fleet-job-row";
+    const statusColor = j.status === "complete" ? "var(--green)" : j.status === "failed" ? "var(--red)" : "var(--yellow)";
+    const time = j.created_at ? new Date(j.created_at).toLocaleTimeString() : "";
+    row.innerHTML =
+      `<span style="color:${statusColor};font-size:9px;width:60px;display:inline-block">${_esc(j.status?.toUpperCase())}</span>` +
+      `<span style="font-size:9px;width:80px;display:inline-block">${_esc(j.type)}</span>` +
+      `<span style="font-size:9px;width:80px;display:inline-block">${_esc(j.target || "—")}</span>` +
+      `<span class="dim" style="font-size:9px;width:70px;display:inline-block">${_esc(j.node_name)}</span>` +
+      `<span class="dim" style="font-size:9px">${_esc(time)}</span>`;
+    container.appendChild(row);
+  });
+}
+
+async function fleetScan() {
+  try {
+    const r = await fetch(`${OLLMO_API}/extensions/fleet/discover`, { method: "POST" });
+    const d = await r.json();
+    showAlert("info", `Discovery: found ${d.discovered} new node${d.discovered !== 1 ? "s" : ""}`);
+  } catch (e) {
+    showAlert("warning", "Scan failed: " + e.message);
+  }
+}
+
+async function fleetPingSelected() {
+  if (!_fleetSelectedNode) return;
+  try {
+    const r = await fetch(`${OLLMO_API}/extensions/fleet/nodes/${_fleetSelectedNode}/ping`, { method: "POST" });
+    const d = await r.json();
+    showAlert("info", `Ping: ${d.reachable ? "reachable" : "unreachable"}`);
+  } catch (e) {
+    showAlert("warning", "Ping failed: " + e.message);
+  }
+}
+
+async function fleetRemoveSelected() {
+  if (!_fleetSelectedNode) return;
+  try {
+    await fetch(`${OLLMO_API}/extensions/fleet/nodes/${_fleetSelectedNode}`, { method: "DELETE" });
+    _fleetSelectedNode = null;
+    document.getElementById("fleet-remote-name").textContent = "Select a node";
+    document.getElementById("fleet-remote-status").textContent = "";
+    document.getElementById("fleet-remote-vram").textContent = "";
+    document.getElementById("fleet-remote-ram").textContent = "";
+    document.getElementById("fleet-remote-modes").innerHTML = '<div class="dim" style="font-size:9px;padding:8px">Select a fleet node to view its modes</div>';
+    document.getElementById("fleet-remote-services").innerHTML = '<div class="dim" style="font-size:9px;padding:8px">Select a fleet node to view its services</div>';
+    document.getElementById("fleet-remote-ping").classList.add("hidden");
+    document.getElementById("fleet-remote-remove").classList.add("hidden");
+  } catch (e) {
+    showAlert("warning", "Remove failed: " + e.message);
+  }
+}
+
+async function fleetLoadSettings() {
+  try {
+    const r = await fetch(`${OLLMO_API}/extensions/fleet/config`);
+    const cfg = await r.json();
+    document.getElementById("fleet-hb-mode").value = cfg.heartbeat_mode || "both";
+    document.getElementById("fleet-hb-interval").value = cfg.heartbeat_interval || 30;
+    document.getElementById("fleet-stale-after").value = cfg.stale_after || 90;
+    document.getElementById("fleet-discovery-toggle").checked = cfg.discovery_enabled !== false;
+    document.getElementById("fleet-disc-interval").value = cfg.discovery_interval || 15;
+  } catch {}
+}
+
+async function fleetSaveSettings() {
+  const body = {
+    heartbeat_mode: document.getElementById("fleet-hb-mode").value,
+    heartbeat_interval: parseInt(document.getElementById("fleet-hb-interval").value),
+    stale_after: parseInt(document.getElementById("fleet-stale-after").value),
+    discovery_enabled: document.getElementById("fleet-discovery-toggle").checked,
+    discovery_interval: parseInt(document.getElementById("fleet-disc-interval").value),
+  };
+  try {
+    const r = await fetch(`${OLLMO_API}/extensions/fleet/config`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.error) { showAlert("warning", "Save failed: " + JSON.stringify(d.error)); return; }
+    showAlert("info", "Fleet settings saved");
+  } catch (e) {
+    showAlert("warning", "Save failed: " + e.message);
+  }
 }
 
 // --- Settings ---

@@ -24,6 +24,7 @@
       <button class="tab-btn" data-tab="advanced">ADVANCED</button>
       <button class="tab-btn" data-tab="api">API</button>
       <button class="tab-btn" data-tab="settings">SETTINGS</button>
+      <button class="tab-btn" data-tab="fleet">FLEET</button>
       <button class="tab-btn" data-tab="help">HELP</button>
     </div>
     <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu">&#9776;</button>
@@ -686,6 +687,96 @@
             <input type="file" id="set-import-file" accept=".json" style="display:none" />
             <button class="mode-btn accent" id="set-reset-btn">RESET</button>
           </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ TAB: FLEET ═════════════════════════════════════════ -->
+  <div id="tab-fleet" class="tab-content">
+    <div class="tab-grid">
+
+      <!-- Node selector strip -->
+      <div class="card card-full" id="card-fleet-nodes">
+        <div class="card-title">
+          FLEET NODES
+          <div style="flex:1"></div>
+          <button class="mode-btn" id="fleet-scan-btn">SCAN</button>
+          <button class="mode-btn" id="fleet-settings-btn">SETTINGS</button>
+        </div>
+        <div id="fleet-node-strip"></div>
+        <div id="fleet-discovery-status" class="dim" style="font-size:9px;padding:4px 8px"></div>
+      </div>
+
+      <!-- Fleet settings panel (hidden by default) -->
+      <div class="card card-full hidden" id="card-fleet-settings">
+        <div class="card-title">FLEET SETTINGS</div>
+        <div id="fleet-settings-body">
+          <div class="config-field">
+            <div class="config-row">
+              <label>Heartbeat Mode</label>
+              <select id="fleet-hb-mode">
+                <option value="both">Both</option>
+                <option value="self-report">Self-Report</option>
+                <option value="hub-poll">Hub-Poll</option>
+              </select>
+            </div>
+          </div>
+          <div class="config-field">
+            <div class="config-row">
+              <label>Heartbeat Interval (s)</label>
+              <input type="number" id="fleet-hb-interval" min="10" value="30" style="width:60px" />
+            </div>
+          </div>
+          <div class="config-field">
+            <div class="config-row">
+              <label>Stale After (s)</label>
+              <input type="number" id="fleet-stale-after" min="30" value="90" style="width:60px" />
+            </div>
+          </div>
+          <div class="config-field">
+            <div class="config-row">
+              <label>Auto-Discovery</label>
+              <input type="checkbox" id="fleet-discovery-toggle" checked />
+            </div>
+          </div>
+          <div class="config-field">
+            <div class="config-row">
+              <label>Discovery Interval (s)</label>
+              <input type="number" id="fleet-disc-interval" min="5" value="15" style="width:60px" />
+            </div>
+          </div>
+          <div style="padding:4px 8px">
+            <button class="mode-btn" id="fleet-save-settings">SAVE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selected node detail — remote service grid -->
+      <div class="card card-full" id="card-fleet-remote">
+        <div class="card-title">
+          <span id="fleet-remote-name">Select a node</span>
+          <span id="fleet-remote-status" class="cfg-tag"></span>
+          <span id="fleet-remote-vram" class="cfg-tag"></span>
+          <span id="fleet-remote-ram" class="cfg-tag"></span>
+          <div style="flex:1"></div>
+          <button class="mode-btn hidden" id="fleet-remote-ping">PING</button>
+          <button class="mode-btn hidden" id="fleet-remote-remove">REMOVE</button>
+        </div>
+        <div id="fleet-remote-modes">
+          <div class="dim" style="font-size:9px;padding:8px">Select a fleet node to view its modes</div>
+        </div>
+        <div id="fleet-remote-services">
+          <div class="dim" style="font-size:9px;padding:8px">Select a fleet node to view its services</div>
+        </div>
+      </div>
+
+      <!-- Job history -->
+      <div class="card card-full" id="card-fleet-jobs">
+        <div class="card-title">JOB HISTORY</div>
+        <div id="fleet-jobs-list">
+          <div class="dim" style="font-size:9px;padding:8px">No jobs dispatched</div>
         </div>
       </div>
 
