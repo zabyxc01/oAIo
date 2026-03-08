@@ -163,5 +163,25 @@ def check_alerts() -> list[dict]:
             "message": f"VRAM {used:.1f}/{total}GB ({pct*100:.0f}%) — approaching limit",
         })
 
+    # ── Host RAM alerts ──────────────────────────────────────────────
+    import psutil
+    ram       = psutil.virtual_memory()
+    ram_pct   = ram.percent / 100
+    ram_used  = round(ram.used  / 1e9, 1)
+    ram_total = round(ram.total / 1e9, 1)
+
+    if ram_pct >= HARD_THRESHOLD:
+        alerts.append({
+            "level":   "critical",
+            "type":    "ram_hard",
+            "message": f"Host RAM {ram_used}/{ram_total}GB ({ram_pct*100:.0f}%) — hard limit exceeded",
+        })
+    elif ram_pct >= WARN_THRESHOLD:
+        alerts.append({
+            "level":   "warning",
+            "type":    "ram_warn",
+            "message": f"Host RAM {ram_used}/{ram_total}GB ({ram_pct*100:.0f}%) — approaching limit",
+        })
+
     alerts.extend(ram_tier.check_alerts())
     return alerts

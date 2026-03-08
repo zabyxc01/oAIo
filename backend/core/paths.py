@@ -7,6 +7,8 @@ from pathlib import Path
 
 SYMLINK_ROOT = Path(os.environ.get("OAIO_SYMLINK_ROOT", "/mnt/oaio"))
 
+_ALLOWED_TARGETS = ["/mnt/storage", "/mnt/windows-sata", "/dev/shm", "/home/oao", "/tmp"]
+
 _TIER_MAP = {
     "/mnt/storage":      "nvme",
     "/mnt/windows-sata": "sata",
@@ -82,6 +84,10 @@ def repoint(link_path: str, new_target: str) -> dict:
         return {"ok": False, "error": "new_target must be an absolute path"}
     if ".." in Path(new_target).parts:
         return {"ok": False, "error": "new_target must not contain '..' components"}
+    # Validate target is under an allowed prefix
+    resolved_target = str(target.resolve())
+    if not any(resolved_target.startswith(prefix) for prefix in _ALLOWED_TARGETS):
+        return {"ok": False, "error": f"new_target must be under one of: {', '.join(_ALLOWED_TARGETS)}"}
     # Auto-create target dir if it looks like a directory path (no file extension)
     if not target.exists() and not target.suffix:
         try:

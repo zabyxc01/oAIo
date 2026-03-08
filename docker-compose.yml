@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "11434:11434"
+      - "${OAIO_BIND:-127.0.0.1}:11434:11434"
     volumes:
       - /mnt/oaio/ollama:/root/.ollama
     devices:
@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "3000:8080"
+      - "${OAIO_BIND:-127.0.0.1}:3000:8080"
     volumes:
       - open-webui:/app/backend/data
     environment:
@@ -61,7 +61,7 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "8000:8000"
+      - "${OAIO_BIND:-127.0.0.1}:8000:8000"
     volumes:
       - /mnt/oaio/kokoro-voices:/models
 
@@ -72,8 +72,8 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "7865:7865"
-      - "8001:8001"
+      - "${OAIO_BIND:-127.0.0.1}:7865:7865"
+      - "${OAIO_BIND:-127.0.0.1}:8001:8001"
     volumes:
       - /mnt/oaio/audio:/models
       - /mnt/oaio/rvc-ref:/rvc/audio
@@ -97,7 +97,7 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "7860:7860"
+      - "${OAIO_BIND:-127.0.0.1}:7860:7860"
     volumes:
       - /mnt/oaio/hf-cache:/hf-cache
       - /mnt/oaio/ref-audio:/ref-audio
@@ -116,7 +116,7 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "7870:7870"
+      - "${OAIO_BIND:-127.0.0.1}:7870:7870"
     volumes:
       - /mnt/oaio/hf-cache:/root/.cache/huggingface
     devices:
@@ -137,7 +137,7 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "8188:8188"
+      - "${OAIO_BIND:-127.0.0.1}:8188:8188"
     volumes:
       - /mnt/oaio/models:/ComfyUI/models
       - /mnt/oaio/custom-nodes:/ComfyUI/custom_nodes
@@ -164,8 +164,8 @@ services:
     restart: unless-stopped
     networks: [oaio-net]
     ports:
-      - "9000:9000"    # oLLMo API + frontend UI
-      - "8002:8002"    # oAudio API
+      - "${OAIO_BIND:-127.0.0.1}:9000:9000"    # oLLMo API + frontend UI
+      - "${OAIO_BIND:-127.0.0.1}:8002:8002"    # oAudio API
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /sys/class/drm:/sys/class/drm:ro
@@ -194,6 +194,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - COMFYUI_USER_PATH=/comfyui-user
       - OAIO_SYMLINK_ROOT=${OAIO_SYMLINK_ROOT:-/mnt/oaio}
+      - OAIO_API_TOKEN=${OAIO_API_TOKEN:-}
       - HF_HOME=/mnt/oaio/hf-cache
     depends_on:
       - ollama

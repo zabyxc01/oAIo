@@ -2,12 +2,13 @@
 Reactive OOM enforcement loop.
 
 Runs as a background asyncio task inside the FastAPI process.
-Polls VRAM every POLL_INTERVAL seconds.
+Polls VRAM and host RAM every POLL_INTERVAL seconds.
 
 Responsibilities:
   1. OOM kill   — stops lowest-priority hard-limit container when VRAM > 95%
-  2. Recovery   — restarts enforcer-killed containers when VRAM drops < 85%
-  3. Crash watch — detects unexpected container exits and restores them with backoff
+  2. RAM kill   — stops lowest-priority hard-limit container when host RAM > 95%
+  3. Recovery   — restarts enforcer-killed containers when both VRAM and RAM drop < 85%
+  4. Crash watch — detects unexpected container exits and restores them with backoff
 
 Actions by service limit_mode:
   soft  — warn only, never killed by enforcer (but crash-watched and restored)
@@ -20,6 +21,7 @@ import time
 import traceback
 from collections import deque
 from pathlib import Path
+import psutil
 from .vram import get_vram_usage
 from . import resources
 
@@ -143,7 +145,10 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                 _prev_status[ctr] = status
 
             # ── 2. Recovery — restart killed/crashed containers when safe ─────
-            if _killed_services and pct < resources.WARN_THRESHOLD:
+            ram = psutil.virtual_memory()
+            ram_pct = ram.percent / 100
+            ram_safe = ram_pct < resources.WARN_THRESHOLD
+            if _killed_services and pct < resources.WARN_THRESHOLD and ram_safe:
                 now        = time.time()
                 to_restore = [
                     ctr for ctr, info in _killed_services.items()
@@ -174,69 +179,113 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                         log.error("Failed to restore %s: %s", ctr, e)
                         _killed_services[ctr] = info  # retry next cycle
 
-            # ── 3. OOM enforcement — only when enabled and a mode is active ────
-            if not enforcer_enabled:
-                continue
+            # ── 3. VRAM OOM enforcement — only when enabled + mode active ──
+            if enforcer_enabled and active_modes:
+                if pct < resources.HARD_THRESHOLD:
+                    _last_kill = None  # reset cooldown when pressure drops
+                else:
+                    candidates = []
+                    for svc_name, svc in services.items():
+                        ctr = svc.get("container")
+                        if not ctr:
+                            continue
+                        if svc.get("limit_mode", "soft") == "soft":
+                            continue
+                        try:
+                            c = client.containers.get(ctr)
+                            if c.status != "running":
+                                continue
+                        except Exception:
+                            continue
+                        candidates.append((svc.get("priority", 3), svc_name, ctr))
 
-            if not active_modes:
-                continue
+                    if not candidates:
+                        log.warning("VRAM %.0f%% — no stoppable services (all soft-limit)", pct * 100)
+                    else:
+                        candidates.sort(key=lambda x: -x[0])
+                        priority, target_svc, target_ctr = candidates[0]
 
-            if pct < resources.HARD_THRESHOLD:
-                _last_kill = None  # reset cooldown when pressure drops
-                continue
+                        if target_ctr == _last_kill:
+                            log.warning("Cooldown: %s already stopped, skipping", target_ctr)
+                        else:
+                            log.warning(
+                                "OOM: VRAM %.1f/%.1f GB (%.0f%%) — stopping %s (priority %d)",
+                                vram["used_gb"], vram["total_gb"], pct * 100, target_svc, priority,
+                            )
+                            try:
+                                client.containers.get(target_ctr).stop(timeout=10)
+                                _last_kill = target_ctr
+                                _killed_services[target_ctr] = {
+                                    "svc_name":  target_svc,
+                                    "priority":  priority,
+                                    "killed_at": time.time(),
+                                    "reason":    "oom",
+                                }
+                                kill_log.appendleft({
+                                    "event":     "kill",
+                                    "service":   target_svc,
+                                    "container": target_ctr,
+                                    "priority":  priority,
+                                    "vram_used": round(vram.get("used_gb", 0), 2),
+                                    "ts":        time.time(),
+                                    "reason":    "oom",
+                                })
+                                _persist_kill_log()
+                                log.info("Stopped %s", target_ctr)
+                            except Exception as e:
+                                log.error("Failed to stop %s: %s", target_ctr, e)
 
-            candidates = []
-            for svc_name, svc in services.items():
-                ctr = svc.get("container")
-                if not ctr:
-                    continue
-                if svc.get("limit_mode", "soft") == "soft":
-                    continue
-                try:
-                    c = client.containers.get(ctr)
-                    if c.status != "running":
+            # ── 4. Host RAM OOM enforcement ───────────────────────────────
+            if enforcer_enabled and active_modes and ram_pct >= resources.HARD_THRESHOLD:
+                ram_candidates = []
+                for svc_name, svc in services.items():
+                    ctr = svc.get("container")
+                    if not ctr:
                         continue
-                except Exception:
-                    continue
-                candidates.append((svc.get("priority", 3), svc_name, ctr))
+                    if svc.get("limit_mode", "soft") == "soft":
+                        continue
+                    try:
+                        c = client.containers.get(ctr)
+                        if c.status != "running":
+                            continue
+                    except Exception:
+                        continue
+                    ram_candidates.append((svc.get("priority", 3), svc_name, ctr))
 
-            if not candidates:
-                log.warning("VRAM %.0f%% — no stoppable services (all soft-limit)", pct * 100)
-                continue
+                if not ram_candidates:
+                    log.warning("Host RAM %.0f%% — no stoppable services (all soft-limit)", ram_pct * 100)
+                else:
+                    ram_candidates.sort(key=lambda x: -x[0])
+                    ram_pri, ram_target_svc, ram_target_ctr = ram_candidates[0]
 
-            candidates.sort(key=lambda x: -x[0])
-            priority, target_svc, target_ctr = candidates[0]
+                    ram_used_gb = round(ram.used / 1e9, 2)
+                    ram_total_gb = round(ram.total / 1e9, 2)
 
-            if target_ctr == _last_kill:
-                log.warning("Cooldown: %s already stopped, skipping", target_ctr)
-                continue
-
-            log.warning(
-                "OOM: VRAM %.1f/%.1f GB (%.0f%%) — stopping %s (priority %d)",
-                vram["used_gb"], vram["total_gb"], pct * 100, target_svc, priority,
-            )
-            try:
-                client.containers.get(target_ctr).stop(timeout=10)
-                _last_kill = target_ctr
-                _killed_services[target_ctr] = {
-                    "svc_name":  target_svc,
-                    "priority":  priority,
-                    "killed_at": time.time(),
-                    "reason":    "oom",
-                }
-                kill_log.appendleft({
-                    "event":     "kill",
-                    "service":   target_svc,
-                    "container": target_ctr,
-                    "priority":  priority,
-                    "vram_used": round(vram.get("used_gb", 0), 2),
-                    "ts":        time.time(),
-                    "reason":    "oom",
-                })
-                _persist_kill_log()
-                log.info("Stopped %s", target_ctr)
-            except Exception as e:
-                log.error("Failed to stop %s: %s", target_ctr, e)
+                    log.warning(
+                        "RAM OOM: Host RAM %.1f/%.1f GB (%.0f%%) — stopping %s (priority %d)",
+                        ram_used_gb, ram_total_gb, ram_pct * 100, ram_target_svc, ram_pri,
+                    )
+                    try:
+                        client.containers.get(ram_target_ctr).stop(timeout=10)
+                        _killed_services[ram_target_ctr] = {
+                            "svc_name":  ram_target_svc,
+                            "priority":  ram_pri,
+                            "killed_at": time.time(),
+                            "reason":    "ram_oom",
+                        }
+                        kill_log.appendleft({
+                            "event":     "kill",
+                            "service":   ram_target_svc,
+                            "container": ram_target_ctr,
+                            "priority":  ram_pri,
+                            "ram_used":  ram_used_gb,
+                            "ts":        time.time(),
+                            "reason":    "ram_oom",
+                        })
+                        _persist_kill_log()
+                        log.info("Stopped %s (RAM OOM)", ram_target_ctr)
+                    except Exception as e:
+                        log.error("Failed to stop %s: %s", ram_target_ctr, e)
 
         except Exception as e:
             log.error("Enforcer loop error: %s\n%s", e, traceback.format_exc())

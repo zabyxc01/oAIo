@@ -26,6 +26,43 @@ let canvas    = null;
 let _lgReady  = false;
 let _fleetInitialized = false;
 
+// --- Auth token support ---
+let _apiToken = localStorage.getItem('oaio-api-token') || '';
+
+async function _fetch(url, opts = {}) {
+  if (_apiToken) {
+    opts.headers = opts.headers || {};
+    if (opts.headers instanceof Headers) {
+      opts.headers.set('Authorization', 'Bearer ' + _apiToken);
+    } else {
+      opts.headers['Authorization'] = 'Bearer ' + _apiToken;
+    }
+  }
+  const r = await fetch(url, opts);
+  if (r.status === 401) {
+    const token = prompt('API token required:');
+    if (token) {
+      _apiToken = token.trim();
+      localStorage.setItem('oaio-api-token', _apiToken);
+      opts.headers = opts.headers || {};
+      if (opts.headers instanceof Headers) {
+        opts.headers.set('Authorization', 'Bearer ' + _apiToken);
+      } else {
+        opts.headers['Authorization'] = 'Bearer ' + _apiToken;
+      }
+      return fetch(url, opts);
+    }
+  }
+  return r;
+}
+
+function _wsUrl(path) {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let url = proto + '//' + location.host + path;
+  if (_apiToken) url += (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(_apiToken);
+  return url;
+}
+
 function _loadScripts(urls, cb) {
   if (!urls.length) { cb(); return; }
   const s = document.createElement("script");
@@ -45,7 +82,7 @@ function scheduleGraphSave() {
 function saveGraph() {
   if (!graph) return;
   const data = graph.serialize();
-  fetch(`${OLLMO_API}/config/nodes`, {
+  _fetch(`${OLLMO_API}/config/nodes`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ graphData: data }),
   }).catch(() => {});
@@ -94,7 +131,7 @@ async function autoWireFromRouting() {
   if (!graph) return;
   let routing = {};
   try {
-    const r = await fetch(`${OLLMO_API}/config/routing`);
+    const r = await _fetch(`${OLLMO_API}/config/routing`);
     routing = await r.json();
   } catch {}
 
@@ -181,7 +218,7 @@ async function _doSyncRoutingFromWires() {
 
   if (Object.keys(updates).length > 0) {
     try {
-      await fetch(`${OLLMO_API}/config/routing`, {
+      await _fetch(`${OLLMO_API}/config/routing`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
@@ -220,7 +257,7 @@ async function initLiteGraph() {
     // Try loading saved graph
     let loaded = false;
     try {
-      const r = await fetch(`${OLLMO_API}/config/nodes`);
+      const r = await _fetch(`${OLLMO_API}/config/nodes`);
       const cfg = await r.json();
       if (cfg.graphData && cfg.graphData.nodes && cfg.graphData.nodes.length > 0) {
         graph.configure(cfg.graphData);
@@ -276,8 +313,8 @@ async function initLiteGraph() {
   }
 }
 
-// Sync LiteGraph node statuses from WS service data
-function syncNodeStatuses(services) {
+// Sync LiteGraph node statuses from WS service data + push sparkline samples
+function syncNodeStatuses(services, vramData) {
   if (!graph) return;
   const byName = {};
   services.forEach(s => { byName[s.name] = s; });
@@ -292,6 +329,20 @@ function syncNodeStatuses(services) {
       node._svc.status = newStatus;
       node._svc.ramUsed = newRam;
       dirty = true;
+    }
+    // Push sparkline sample: use RAM if available, else binary activity
+    if (typeof node._sparkPush === "function") {
+      let val;
+      if (newRam > 0) {
+        val = newRam;  // GB of RAM used by this service
+      } else if (newStatus === "running" && node._svc.vramEst > 0) {
+        // For VRAM services: use the service's estimated VRAM share as a proxy
+        val = node._svc.vramEst;
+      } else {
+        // Binary: running=1, stopped=0
+        val = newStatus === "running" ? 1 : 0;
+      }
+      node._sparkPush(val);
     }
   });
   if (dirty && canvas) canvas.setDirty(true, true);
@@ -563,7 +614,7 @@ let modesData   = {};
 
 async function fetchModesData() {
   try {
-    const r = await fetch(`${OLLMO_API}/modes`);
+    const r = await _fetch(`${OLLMO_API}/modes`);
     modesData = await r.json();
     renderModePills();
     renderModeStrip();
@@ -644,7 +695,7 @@ async function onModeCardClick(modeId, info) {
 
   let projection = null;
   try {
-    const r = await fetch(`${OLLMO_API}/modes/${modeId}/check`);
+    const r = await _fetch(`${OLLMO_API}/modes/${modeId}/check`);
     projection = await r.json();
   } catch {}
 
@@ -683,7 +734,7 @@ document.getElementById("emergency-kill-btn").addEventListener("click", async ()
   btn.disabled = true;
   btn.textContent = "⬛ KILLING…";
   try {
-    await fetch(`${OLLMO_API}/emergency/kill`, { method: "POST" });
+    await _fetch(`${OLLMO_API}/emergency/kill`, { method: "POST" });
     activeModes = [];
     renderModeTabs();
     renderModeGrid();
@@ -711,7 +762,7 @@ document.getElementById("mc-activate").addEventListener("click", async () => {
   renderModeGrid();
 
   try {
-    const r    = await fetch(`${OLLMO_API}/modes/${modeId}/activate`, { method: "POST" });
+    const r    = await _fetch(`${OLLMO_API}/modes/${modeId}/activate`, { method: "POST" });
     const data = await r.json();
     if (data.warning) {
       showAlert("warning",
@@ -731,7 +782,7 @@ function deactivateMode(modeId) {
   renderModeGrid();
   renderModeStrip();
   if (selectedNode) loadModeAllocations(selectedNode);
-  fetch(`${OLLMO_API}/modes/${modeId}/deactivate`, { method: "POST" }).catch(() => {});
+  _fetch(`${OLLMO_API}/modes/${modeId}/deactivate`, { method: "POST" }).catch(() => {});
 }
 
 // --- Mode strip (CONFIG tab) ---
@@ -768,7 +819,7 @@ function renderModeStrip() {
         renderModeTabs();
         renderModeGrid();
         renderModeStrip();
-        fetch(`${OLLMO_API}/modes/${key}/activate`, { method: "POST" })
+        _fetch(`${OLLMO_API}/modes/${key}/activate`, { method: "POST" })
           .then(r => r.json())
           .then(data => {
             if (data.warning) showAlert("warning", `${(mode.name || key).toUpperCase()} active — ~${data.projection?.projected_gb}GB projected.`);
@@ -808,7 +859,7 @@ async function expandModeEditor(modeId) {
   // Fetch all services for checkbox grid
   let allServices = {};
   try {
-    const r = await fetch(`${OLLMO_API}/config/services`);
+    const r = await _fetch(`${OLLMO_API}/config/services`);
     allServices = await r.json();
   } catch {}
 
@@ -860,7 +911,7 @@ async function expandModeEditor(modeId) {
   document.getElementById("mse-name").addEventListener("blur", async () => {
     const newName = document.getElementById("mse-name").value.trim();
     if (newName && newName !== (info.name || modeId)) {
-      await fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
+      await _fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName }),
       });
@@ -872,7 +923,7 @@ async function expandModeEditor(modeId) {
   document.getElementById("mse-desc").addEventListener("blur", async () => {
     const newDesc = document.getElementById("mse-desc").value.trim();
     if (newDesc !== (info.description || "")) {
-      await fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
+      await _fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: newDesc }),
       });
@@ -885,7 +936,7 @@ async function expandModeEditor(modeId) {
     document.getElementById("mse-vram-val").textContent = vramSlider.value + " GB";
   });
   vramSlider.addEventListener("change", async () => {
-    await fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
+    await _fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vram_budget_gb: parseFloat(vramSlider.value) }),
     });
@@ -900,7 +951,7 @@ async function expandModeEditor(modeId) {
       pill.classList.toggle("checked");
       const services = Array.from(document.querySelectorAll("#mse-services .mse-svc-pill.checked"))
         .map(p => p.dataset.svc);
-      await fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
+      await _fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ services }),
       });
@@ -917,7 +968,7 @@ async function expandModeEditor(modeId) {
   document.getElementById("mse-priority").addEventListener("change", () => {
     modeConfigs[modeId] = modeConfigs[modeId] || {};
     modeConfigs[modeId].priority = document.getElementById("mse-priority").value;
-    fetch(`${OLLMO_API}/config/nodes`, {
+    _fetch(`${OLLMO_API}/config/nodes`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ modeConfigs }),
     }).catch(() => {});
@@ -925,7 +976,7 @@ async function expandModeEditor(modeId) {
   document.getElementById("mse-limit").addEventListener("change", () => {
     modeConfigs[modeId] = modeConfigs[modeId] || {};
     modeConfigs[modeId].limit = document.getElementById("mse-limit").value;
-    fetch(`${OLLMO_API}/config/nodes`, {
+    _fetch(`${OLLMO_API}/config/nodes`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ modeConfigs }),
     }).catch(() => {});
@@ -942,7 +993,7 @@ async function expandModeEditor(modeId) {
       renderModeTabs();
       renderModeGrid();
       try {
-        const r = await fetch(`${OLLMO_API}/modes/${modeId}/activate`, { method: "POST" });
+        const r = await _fetch(`${OLLMO_API}/modes/${modeId}/activate`, { method: "POST" });
         const data = await r.json();
         if (data.warning) {
           showAlert("warning", `${(info.name || modeId).toUpperCase()} active — ~${data.projection?.projected_gb}GB projected.`);
@@ -958,7 +1009,7 @@ async function expandModeEditor(modeId) {
   // Delete
   document.getElementById("mse-delete").addEventListener("click", async () => {
     if (!confirm(`Delete mode "${info.name || modeId}"?`)) return;
-    await fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, { method: "DELETE" });
+    await _fetch(`${OLLMO_API}/modes/${encodeURIComponent(modeId)}`, { method: "DELETE" });
     collapseModeEditor();
     await fetchModesData();
     renderModeGrid();
@@ -987,7 +1038,7 @@ document.getElementById("mode-strip-add")?.addEventListener("click", async () =>
 
   let allServices = {};
   try {
-    const r = await fetch(`${OLLMO_API}/config/services`);
+    const r = await _fetch(`${OLLMO_API}/config/services`);
     allServices = await r.json();
   } catch {}
 
@@ -1037,7 +1088,7 @@ document.getElementById("mode-strip-add")?.addEventListener("click", async () =>
     const services = Array.from(document.querySelectorAll("#mse-new-services .mse-svc-pill.checked"))
       .map(p => p.dataset.svc);
     try {
-      const r = await fetch(`${OLLMO_API}/modes`, {
+      const r = await _fetch(`${OLLMO_API}/modes`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, description: desc, vram_budget_gb: budget, services }),
       });
@@ -1060,7 +1111,7 @@ document.getElementById("mode-strip-add")?.addEventListener("click", async () =>
 document.getElementById("mode-strip-save-tpl")?.addEventListener("click", async () => {
   const name = prompt("Template name:");
   if (!name) return;
-  await fetch(`${OLLMO_API}/templates/save?name=${encodeURIComponent(name)}`, { method: "POST" });
+  await _fetch(`${OLLMO_API}/templates/save?name=${encodeURIComponent(name)}`, { method: "POST" });
   showAlert("info", `Template "${name}" saved.`);
 });
 
@@ -1117,7 +1168,7 @@ document.getElementById("pull-model-btn").addEventListener("click", async () => 
   if (!name) return;
   status.textContent = "pulling...";
   try {
-    const r = await fetch(`${OLLMO_API}/services/ollama/models/pull`, {
+    const r = await _fetch(`${OLLMO_API}/services/ollama/models/pull`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
@@ -1189,7 +1240,7 @@ document.getElementById("node-canvas").addEventListener("contextmenu", e => {
       const name = prompt("Mode to delete:\n" + keys.join(", "));
       if (!name || !modesData[name]) return;
       if (!confirm(`Delete mode "${modesData[name].name || name}"?`)) return;
-      await fetch(`${OLLMO_API}/modes/${encodeURIComponent(name)}`, { method: "DELETE" });
+      await _fetch(`${OLLMO_API}/modes/${encodeURIComponent(name)}`, { method: "DELETE" });
       await fetchModesData();
       renderModeGrid();
       renderModePills();
@@ -1230,7 +1281,7 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
   if (!name) return;
 
   try {
-    const r = await fetch(`${OLLMO_API}/config/services`, {
+    const r = await _fetch(`${OLLMO_API}/config/services`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name, container: ctr || name, port,
@@ -1250,19 +1301,51 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
       const nc = _nodeColors();
       this.color   = nc.color;
       this.bgcolor = nc.bgcolor;
-      this.size    = [220, 110];
+      this.size    = [220, 130];
       this._svc    = { name, group, port, vramEst: vram, status: "unknown", ramUsed: 0 };
+      // Sparkline rolling buffer
+      this._sparkData  = [];
+      this._sparkMax   = 30;
+      const _grpKey = {"oLLM":"--grp-llm","oAudio":"--grp-audio","Render":"--grp-render","Control":"--grp-control"}[group];
+      this._grpHex = _grpKey ? (getComputedStyle(document.documentElement).getPropertyValue(_grpKey).trim() || "#555") : "#555";
+      this._sparkPhase = 0;
+      this._sparkAnim  = null;
       this._refreshStatus();
     }
     NodeClass.prototype = Object.create(LGraphNode.prototype);
     NodeClass.prototype._refreshStatus = async function() {
       try {
-        const r = await fetch(`${OLLMO_API}/services/${this._svc.name}/status`);
+        const r = await _fetch(`${OLLMO_API}/services/${this._svc.name}/status`);
         const d = await r.json();
         this._svc.status  = d.status || "unknown";
         this._svc.ramUsed = d.ram_used_gb || 0;
       } catch { this._svc.status = "error"; }
       this.setDirtyCanvas(true);
+    };
+    NodeClass.prototype._sparkPush = function(value) {
+      this._sparkData.push(value);
+      if (this._sparkData.length > this._sparkMax) this._sparkData.shift();
+      if (!this._sparkAnim) this._sparkStartAnim();
+    };
+    NodeClass.prototype._sparkStartAnim = function() {
+      const self = this;
+      let last = performance.now();
+      const interval = 50;
+      function tick(now) {
+        self._sparkAnim = requestAnimationFrame(tick);
+        if (now - last < interval) return;
+        const configTab = document.getElementById("tab-config");
+        if (configTab && !configTab.classList.contains("active")) return;
+        const dt = (now - last) / 1000;
+        last = now;
+        self._sparkPhase = (self._sparkPhase || 0) + dt * 3.0;
+        if (self._sparkPhase > Math.PI * 200) self._sparkPhase -= Math.PI * 200;
+        self.setDirtyCanvas(true);
+      }
+      this._sparkAnim = requestAnimationFrame(tick);
+    };
+    NodeClass.prototype.onRemoved = function() {
+      if (this._sparkAnim) { cancelAnimationFrame(this._sparkAnim); this._sparkAnim = null; }
     };
     NodeClass.prototype.onDrawBackground = function(ctx) {
       const s = this._svc;
@@ -1292,14 +1375,70 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
       const s = this._svc;
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-dim").trim() || "#555";
       ctx.font = "10px monospace";
-      ctx.fillText(`VRAM est: ${s.vramEst}GB`, 8, this.size[1] - 42);
-      ctx.fillText(`RAM: ${s.ramUsed}GB`, 8, this.size[1] - 28);
-      ctx.fillText(`Group: ${s.group}`, 8, this.size[1] - 14);
+      ctx.fillText(`VRAM est: ${s.vramEst}GB`, 8, this.size[1] - 62);
+      ctx.fillText(`RAM: ${s.ramUsed}GB`, 8, this.size[1] - 48);
+      ctx.fillText(`Group: ${s.group}`, 8, this.size[1] - 34);
+
+      // ── Sparkline ──────────────────────────────────────
+      const buf = this._sparkData;
+      if (!buf || buf.length < 2) return;
+      const pad   = 6;
+      const sparkH = 22;
+      const sparkY = this.size[1] - sparkH - pad;
+      const sparkW = this.size[0] - pad * 2;
+      const sparkX = pad;
+      let maxVal = 0;
+      for (let i = 0; i < buf.length; i++) { if (buf[i] > maxVal) maxVal = buf[i]; }
+      if (maxVal < 0.01) maxVal = 1;
+      const stepX = sparkW / (this._sparkMax - 1);
+      const pts = [];
+      for (let i = 0; i < buf.length; i++) {
+        pts.push({
+          x: sparkX + (this._sparkMax - buf.length + i) * stepX,
+          y: sparkY + sparkH - (buf[i] / maxVal) * sparkH,
+        });
+      }
+      const grpColor = this._grpHex;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, sparkY + sparkH);
+      for (let i = 0; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[pts.length - 1].x, sparkY + sparkH);
+      ctx.closePath();
+      ctx.fillStyle = grpColor + "18";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.strokeStyle = grpColor + "cc";
+      ctx.lineWidth   = 1.5;
+      ctx.lineJoin    = "round";
+      ctx.stroke();
+      if (s.status === "running") {
+        const last = pts[pts.length - 1];
+        const noAnim = document.body.classList.contains("no-animations");
+        const phase = noAnim ? 0 : (this._sparkPhase || 0);
+        const glowR = noAnim ? 2.5 : 2.5 + Math.sin(phase) * 1.0;
+        const glowA = noAnim ? 0.7 : 0.6 + Math.sin(phase) * 0.25;
+        ctx.beginPath();
+        ctx.arc(last.x, last.y, glowR, 0, Math.PI * 2);
+        ctx.fillStyle = grpColor;
+        ctx.globalAlpha = glowA;
+        ctx.fill();
+        if (!noAnim) {
+          ctx.beginPath();
+          ctx.arc(last.x, last.y, glowR + 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = grpColor;
+          ctx.globalAlpha = glowA * 0.25;
+          ctx.fill();
+        }
+      }
+      ctx.restore();
     };
     NodeClass.prototype.onMouseDown = function(e, pos) {
       if (pos[0] > this.size[0] - 34 && pos[1] < 26) {
         const action = this._svc.status === "running" ? "stop" : "start";
-        fetch(`${OLLMO_API}/services/${this._svc.name}/${action}`, { method: "POST" })
+        _fetch(`${OLLMO_API}/services/${this._svc.name}/${action}`, { method: "POST" })
           .then(() => this._refreshStatus());
         return true;
       }
@@ -1347,7 +1486,7 @@ document.getElementById("mode-new-submit").addEventListener("click", async () =>
   if (!name) return;
 
   try {
-    const r = await fetch(`${OLLMO_API}/modes`, {
+    const r = await _fetch(`${OLLMO_API}/modes`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, description: desc, vram_budget_gb: budget, services }),
     });
@@ -1399,7 +1538,7 @@ function loadModeConfig(modeId) {
 // --- Load persisted node configs ---
 async function initConfigs() {
   try {
-    const r = await fetch(`${OLLMO_API}/config/nodes`);
+    const r = await _fetch(`${OLLMO_API}/config/nodes`);
     const data = await r.json();
     if (data.nodeConfigs) Object.assign(nodeConfigs, data.nodeConfigs);
     if (data.modeConfigs) Object.assign(modeConfigs, data.modeConfigs);
@@ -1418,7 +1557,7 @@ document.getElementById("scan-docker-btn").addEventListener("click", async () =>
   dropdown.classList.remove("hidden");
 
   try {
-    const r = await fetch(`${OLLMO_API}/docker/discover`);
+    const r = await _fetch(`${OLLMO_API}/docker/discover`);
     const containers = await r.json();
     if (!containers.length) {
       dropdown.innerHTML = '<span class="dim">No unregistered containers found on oaio-net</span>';
@@ -1482,7 +1621,7 @@ function saveNodeConfig() {
     sub,
   };
   nodeConfigs[key] = cfg;
-  fetch(`${OLLMO_API}/config/nodes`, {
+  _fetch(`${OLLMO_API}/config/nodes`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ nodeConfigs }),
   }).catch(() => {});
@@ -1497,7 +1636,7 @@ function saveNodeConfig() {
       limit_mode:      cfg.limit,
       boot_with_system: cfg.boot,
     };
-    fetch(`${OLLMO_API}/config/services/${encodeURIComponent(svcName)}`, {
+    _fetch(`${OLLMO_API}/config/services/${encodeURIComponent(svcName)}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     }).catch(() => {});
@@ -1523,7 +1662,7 @@ async function loadNodeConfig(node) {
   let svcCfg = null;
   if (svcName) {
     try {
-      const r = await fetch(`${OLLMO_API}/config/services`);
+      const r = await _fetch(`${OLLMO_API}/config/services`);
       const all = await r.json();
       svcCfg = all[svcName];
     } catch {}
@@ -1557,7 +1696,7 @@ async function loadModeAllocations(node) {
     const modeInfo = modesData[modeId] || {};
     let allocs = {}, budget = modeInfo.vram_est_gb || 20;
     try {
-      const r = await fetch(`${OLLMO_API}/modes/${modeId}/allocations`);
+      const r = await _fetch(`${OLLMO_API}/modes/${modeId}/allocations`);
       const d = await r.json();
       allocs = d.allocations || {};
       budget = d.vram_budget_gb || budget;
@@ -1579,7 +1718,7 @@ async function loadModeAllocations(node) {
     const label  = row.querySelector(".alloc-val");
     slider.addEventListener("input", () => { label.textContent = slider.value + " GB"; });
     slider.addEventListener("change", async () => {
-      const r = await fetch(
+      const r = await _fetch(
         `${OLLMO_API}/modes/${modeId}/allocations/${encodeURIComponent(svcName)}`,
         { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ gb: parseFloat(slider.value) }) }
@@ -1635,7 +1774,7 @@ async function loadNodeRouting(node) {
   // Load current routing config
   let routing = {};
   try {
-    const r = await fetch(`${OLLMO_API}/config/routing`);
+    const r = await _fetch(`${OLLMO_API}/config/routing`);
     routing = await r.json();
   } catch {}
 
@@ -1652,7 +1791,7 @@ async function loadNodeRouting(node) {
 
     const input = entry.querySelector("input");
     input.addEventListener("change", async () => {
-      await fetch(`${OLLMO_API}/config/routing`, {
+      await _fetch(`${OLLMO_API}/config/routing`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [rt.key]: input.value }),
       });
@@ -1787,8 +1926,8 @@ async function loadPathsPanel() {
   document.getElementById("config-vram-est").textContent   = "";
   try {
     const [pathsR, routingR] = await Promise.all([
-      fetch(`${OLLMO_API}/config/paths`),
-      fetch(`${OLLMO_API}/config/routing`),
+      _fetch(`${OLLMO_API}/config/paths`),
+      _fetch(`${OLLMO_API}/config/routing`),
     ]);
     const paths   = await pathsR.json();
     const routing = await routingR.json();
@@ -1828,7 +1967,7 @@ function renderPathsInto(paths, listEl, onRefresh) {
     );
     entry.querySelector(".path-del-btn").addEventListener("click", async () => {
       if (!confirm(`Remove path "${p.label}"?`)) return;
-      await fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(p.name)}`, { method: "DELETE" });
+      await _fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(p.name)}`, { method: "DELETE" });
       onRefresh();
     });
     listEl.appendChild(entry);
@@ -1863,7 +2002,7 @@ function showAddPathForm(list, addBtn, onRefresh) {
     const label  = document.getElementById("add-label").value.trim();
     const target = document.getElementById("add-target").value.trim();
     if (!name || !target) return;
-    await fetch(`${OLLMO_API}/config/paths`, {
+    await _fetch(`${OLLMO_API}/config/paths`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, label: label || name, target }),
     });
@@ -1884,7 +2023,7 @@ function startPathEdit(entry, name, currentTarget, onRefresh) {
     const newTarget = input.value.trim();
     if (!newTarget) { onRefresh(); return; }
     try {
-      await fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(name)}`, {
+      await _fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(name)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: newTarget }),
       });
@@ -1909,7 +2048,7 @@ document.getElementById("save-routing-btn").addEventListener("click", async () =
     stt_url:       document.getElementById("route-stt-url").value.trim(),
   };
   try {
-    await fetch(`${OLLMO_API}/config/routing`, {
+    await _fetch(`${OLLMO_API}/config/routing`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -2177,7 +2316,7 @@ let _enfRealTotal = 20;
 
 async function enfToggle(enabled) {
   try {
-    await fetch(`${OLLMO_API}/enforcement/${enabled ? 'enable' : 'disable'}`, { method: "POST" });
+    await _fetch(`${OLLMO_API}/enforcement/${enabled ? 'enable' : 'disable'}`, { method: "POST" });
   } catch {}
 }
 
@@ -2201,7 +2340,7 @@ async function enfSetCeiling() {
   }
 
   try {
-    await fetch(`${OLLMO_API}/enforcement/ceiling`, {
+    await _fetch(`${OLLMO_API}/enforcement/ceiling`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vram_ceiling_gb: val }),
     });
@@ -2213,7 +2352,7 @@ async function enfClearCeiling() {
   const input = document.getElementById("enf-ceiling-input");
   const warnEl = document.getElementById("enf-ceiling-warn");
   try {
-    await fetch(`${OLLMO_API}/enforcement/ceiling`, {
+    await _fetch(`${OLLMO_API}/enforcement/ceiling`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vram_ceiling_gb: null }),
     });
@@ -2231,7 +2370,7 @@ document.getElementById("enf-ceiling-input")?.addEventListener("keydown", e => {
 
 async function svcSetLimitMode(name, mode) {
   try {
-    await fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
+    await _fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ limit_mode: mode }),
@@ -2287,7 +2426,7 @@ function renderEnforcement(data) {
 async function svcSetPriority(name, val) {
   const priority = Math.max(1, Math.min(5, parseInt(val) || 3));
   try {
-    await fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
+    await _fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ priority }),
@@ -2301,7 +2440,7 @@ let _svcsCfg = {};
 
 async function fetchServicesCfg() {
   try {
-    const r = await fetch(`${OLLMO_API}/config/services`);
+    const r = await _fetch(`${OLLMO_API}/config/services`);
     _svcsCfg = await r.json();
   } catch {}
 }
@@ -2336,45 +2475,65 @@ function renderServices(services, killOrder) {
     const limitCls  = limitMode === "hard" ? "lm-hard" : limitMode === "off" ? "lm-off" : "lm-soft";
     const priority  = ko.priority ?? cfg.priority ?? 3;
     const wouldKill = ko.would_kill ? " ko-would-kill" : "";
+    const boot      = !!cfg.boot_with_system;
     const eName = _esc(svc.name);
     return `<div class="svc-row${wouldKill}">
       <span class="enf-ko-pos">${sorted.length - i}</span>
       <span class="svc-dot ${dot}"></span>
       <span class="svc-name">${eName}</span>
-      <span class="svc-lm ${limitCls}" title="Limit mode — click to cycle"
-        onclick="svcCycleLimitMode('${eName}','${_esc(limitMode)}')">${_esc(limitMode)}</span>
+      <span class="svc-lm ${limitCls} svc-lm-btn" title="Limit mode — click to cycle"
+        data-svc="${eName}" data-lm="${_esc(limitMode)}">${_esc(limitMode)}</span>
       <span class="svc-status">${_esc(st)}</span>
       <span class="svc-vram">${vram > 0 ? vram + 'GB' : '—'}</span>
-      <input type="number" class="enf-ko-prio" value="${priority}" min="1" max="5" title="Priority (1=protected, 5=first killed)"
-        onchange="svcSetPriority('${eName}', this.value)">
-      <button class="svc-btn" title="Start" ${running ? 'disabled' : ''}
-        onclick="svcAction('${eName}','start')">▶</button>
-      <button class="svc-btn" title="Stop" ${!running ? 'disabled' : ''}
-        onclick="svcAction('${eName}','stop')">■</button>
+      <input type="number" class="enf-ko-prio svc-prio-input" data-svc="${eName}" value="${priority}" min="1" max="5" title="Priority (1=protected, 5=first killed)">
+      <button class="svc-btn svc-start-btn" title="Start" ${running ? 'disabled' : ''}
+        data-svc="${eName}">▶</button>
+      <button class="svc-btn svc-stop-btn" title="Stop" ${!running ? 'disabled' : ''}
+        data-svc="${eName}">■</button>
       <label class="svc-restore-toggle" title="${restore ? 'Auto-restore on' : 'Auto-restore off'}">
-        <input type="checkbox" ${restore ? 'checked' : ''}
-          onchange="svcToggleRestore('${eName}', this.checked)">
+        <input type="checkbox" class="svc-restore-cb" data-svc="${eName}" ${restore ? 'checked' : ''}>
         <span class="svc-restore-track"></span>
       </label>
+      <span class="svc-boot-pill${boot ? ' boot-on' : ''}" data-svc="${eName}" data-boot="${boot ? 'false' : 'true'}" title="${boot ? 'Boot with system — click to disable' : 'Not booting with system — click to enable'}">BOOT</span>
     </div>`;
   }).join("");
+
+  // Wire up event listeners (avoid inline onclick/onchange with user data)
+  el.querySelectorAll('.svc-lm-btn').forEach(btn => btn.addEventListener('click', () => svcCycleLimitMode(btn.dataset.svc, btn.dataset.lm)));
+  el.querySelectorAll('.svc-prio-input').forEach(inp => inp.addEventListener('change', () => svcSetPriority(inp.dataset.svc, inp.value)));
+  el.querySelectorAll('.svc-start-btn').forEach(btn => btn.addEventListener('click', () => svcAction(btn.dataset.svc, 'start')));
+  el.querySelectorAll('.svc-stop-btn').forEach(btn => btn.addEventListener('click', () => svcAction(btn.dataset.svc, 'stop')));
+  el.querySelectorAll('.svc-restore-cb').forEach(cb => cb.addEventListener('change', () => svcToggleRestore(cb.dataset.svc, cb.checked)));
+  el.querySelectorAll('.svc-boot-pill').forEach(btn => btn.addEventListener('click', () => svcToggleBoot(btn.dataset.svc, btn.dataset.boot === 'true')));
 }
 
 async function svcAction(name, action) {
   try {
-    await fetch(`${OLLMO_API}/services/${encodeURIComponent(name)}/${action}`, { method: "POST" });
+    await _fetch(`${OLLMO_API}/services/${encodeURIComponent(name)}/${action}`, { method: "POST" });
     setTimeout(poll, 1500);
   } catch {}
 }
 
 async function svcToggleRestore(name, enabled) {
   try {
-    await fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
+    await _fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ auto_restore: enabled }),
     });
     if (_svcsCfg[name]) _svcsCfg[name].auto_restore = enabled;
+  } catch {}
+}
+
+async function svcToggleBoot(name, enabled) {
+  try {
+    await _fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ boot_with_system: enabled }),
+    });
+    if (_svcsCfg[name]) _svcsCfg[name].boot_with_system = enabled;
+    setTimeout(poll, 500);
   } catch {}
 }
 
@@ -2390,7 +2549,7 @@ let _lastRamTier = null;
 
 async function fetchPathsForRamTier() {
   try {
-    const r = await fetch(`${OLLMO_API}/config/paths`);
+    const r = await _fetch(`${OLLMO_API}/config/paths`);
     _pathsCache = await r.json();
     renderRamTier(_lastRamTier);
     renderDiskMap(_pathsCache);
@@ -2411,12 +2570,25 @@ function renderRamTier(ramTier) {
   let headerHTML;
   if (ramTier && Object.keys(ramTier).length > 0 && ramTier.pools) {
     const poolCount = Object.keys(ramTier.pools).length;
-    headerHTML = `<div class="acct-stats" style="margin-bottom:8px">
+    const used = ramTier.used_gb ?? 0;
+    const ceiling = ramTier.ceiling_gb ?? 0;
+    const free = ramTier.free_gb ?? 0;
+    const pct = ramTier.percent ?? 0;
+    const pctNorm = pct / 100;
+    const barCls = pctNorm > 0.85 ? " hot" : pctNorm > 0.6 ? " warn" : "";
+    headerHTML = `<div class="acct-stats" style="margin-bottom:4px">
       <span>${poolCount} pool${poolCount !== 1 ? 's' : ''} active</span>
-      <span>${ramTier.used_gb?.toFixed(1) ?? 0} / ${ramTier.ceiling_gb ?? '?'} GB</span>
+      <span>${_esc(used.toFixed(1))} / ${_esc(String(ceiling))} GB (${_esc(pct.toFixed(0))}%)</span>
+    </div>
+    <div class="rt-bar-wrap">
+      <div class="rt-bar"><div class="fill${barCls}" style="width:${Math.min(pct, 100)}%"></div></div>
+      <div class="rt-bar-labels">
+        <span class="rt-used">${_esc(used.toFixed(2))} GB used</span>
+        <span class="rt-free">${_esc(free.toFixed(2))} GB free</span>
+      </div>
     </div>`;
   } else {
-    headerHTML = `<div class="dim" style="margin-bottom:8px; font-size:10px">0 pools active</div>`;
+    headerHTML = `<div class="dim" style="margin-bottom:8px; font-size:10px">0 pools active &mdash; toggle paths below to pin to RAM</div>`;
   }
 
   let anyRam = false;
@@ -2426,18 +2598,24 @@ function renderRamTier(ramTier) {
     if (isRam) anyRam = true;
     const diskTier = p.default_tier?.toUpperCase() || p.tier_default?.toUpperCase() || "NVME";
     const tierCls = diskTier === "SATA" ? "sata" : diskTier === "RAM" ? "ram" : "nvme";
+    const poolSize = (isRam && ramTier?.pools?.[p.name] != null)
+      ? `<span class="rt-pool-size">${ramTier.pools[p.name].toFixed(2)} GB</span>`
+      : '';
     return `<div class="rt-row">
-      <span class="rt-name">${p.label || p.name}</span>
-      <span class="rt-tier-label tier-${tierCls}${isRam ? ' active' : ''}">${isRam ? diskTier + ' → RAM' : diskTier}</span>
-      <label class="rt-toggle" title="${isRam ? 'Move back to ' + diskTier : 'Move to RAM'}">
-        <input type="checkbox" ${isRam ? 'checked' : ''}
-          onchange="rtTogglePath('${p.name}',this.checked)">
+      <span class="rt-name">${_esc(p.label || p.name)}</span>
+      ${poolSize}
+      <span class="rt-tier-label tier-${_esc(tierCls)}${isRam ? ' active' : ''}">${isRam ? _esc(diskTier) + ' \u2192 RAM' : _esc(diskTier)}</span>
+      <label class="rt-toggle" title="${isRam ? 'Move back to ' + _esc(diskTier) : 'Move to RAM'}">
+        <input type="checkbox" class="rt-path-cb" data-path="${_esc(p.name)}" ${isRam ? 'checked' : ''}>
         <span class="rt-toggle-track"></span>
       </label>
     </div>`;
   }).join("");
 
   el.innerHTML = headerHTML + pathRows;
+
+  // Wire up RAM tier toggle listeners (avoid inline onchange with user data)
+  el.querySelectorAll('.rt-path-cb').forEach(cb => cb.addEventListener('change', () => rtTogglePath(cb.dataset.path, cb.checked)));
 
   // Sync master toggle
   const masterCb = document.getElementById("rt-master-cb");
@@ -2446,7 +2624,7 @@ function renderRamTier(ramTier) {
 
 async function rtTogglePath(name, toRam) {
   try {
-    await fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(name)}`, {
+    await _fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(name)}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target: toRam ? "ram" : "default" }),
     });
@@ -2458,7 +2636,7 @@ async function rtMasterToggle(enabled) {
   const target = enabled ? "ram" : "default";
   try {
     await Promise.all(_pathsCache.map(p =>
-      fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(p.name)}`, {
+      _fetch(`${OLLMO_API}/config/paths/${encodeURIComponent(p.name)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target }),
       })
@@ -2473,10 +2651,10 @@ let _advSvcStatus = {};
 async function loadAdvancedTab() {
   try {
     const [pathsR, routingR, svcsR, statusR] = await Promise.all([
-      fetch(`${OLLMO_API}/config/paths`),
-      fetch(`${OLLMO_API}/config/routing`),
-      fetch(`${OLLMO_API}/config/services`),
-      fetch(`${OLLMO_API}/system/status`),
+      _fetch(`${OLLMO_API}/config/paths`),
+      _fetch(`${OLLMO_API}/config/routing`),
+      _fetch(`${OLLMO_API}/config/services`),
+      _fetch(`${OLLMO_API}/system/status`),
     ]);
     const paths    = await pathsR.json();
     const routing  = await routingR.json();
@@ -2808,10 +2986,9 @@ async function startLiveMonitor() {
     // Clean up stale WS to prevent handler leaks
     if (_liveMonitorWs) { _liveMonitorWs.onclose = null; _liveMonitorWs.onerror = null; _liveMonitorWs.onmessage = null; }
     try {
-      const probe = await fetch(`${OLLMO_API}/api/monitor/stats`).catch(() => null);
+      const probe = await _fetch(`${OLLMO_API}/api/monitor/stats`).catch(() => null);
       if (!probe || !probe.ok) { setTimeout(startLiveMonitor, 3000); return; }
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      _liveMonitorWs = new WebSocket(`${proto}//${location.host}/api/monitor/ws`);
+      _liveMonitorWs = new WebSocket(_wsUrl('/api/monitor/ws'));
       _liveMonitorWs.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
@@ -2849,9 +3026,159 @@ function stopLiveMonitor() {
   if (_liveMonitorWs) { _liveMonitorWs.onclose = null; _liveMonitorWs.close(); _liveMonitorWs = null; }
 }
 
+// ── Debugger logs card (LIVE tab) ──────────────────────────────────────────
+let _dbgWs = null;
+let _dbgContainer = null;
+let _dbgFilter = "all"; // "all" | "errors"
+const _DBG_MAX_LINES = 500;
+
+function initDebuggerCard() {
+  // Container selector buttons
+  document.querySelectorAll(".dbg-ctr-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const ctr = btn.dataset.ctr;
+      if (_dbgContainer === ctr) {
+        // Deselect — disconnect
+        debuggerDisconnect();
+        btn.classList.remove("active");
+        _dbgContainer = null;
+      } else {
+        // Select new container
+        document.querySelectorAll(".dbg-ctr-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        debuggerSelectContainer(ctr);
+      }
+    });
+  });
+
+  // Filter toggle buttons
+  document.querySelectorAll(".dbg-filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".dbg-filter-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _dbgFilter = btn.dataset.filter;
+      // Reconnect with new filter if a container is active
+      if (_dbgContainer) {
+        debuggerSelectContainer(_dbgContainer);
+      }
+    });
+  });
+}
+
+function debuggerSelectContainer(name) {
+  debuggerDisconnect();
+  _dbgContainer = name;
+  const output = document.getElementById("dbg-output");
+  if (!output) return;
+  output.innerHTML = '<span class="dim">Connecting to ' + _esc(name) + '...</span>';
+
+  if (_dbgFilter === "errors") {
+    // Fetch errors via REST, then connect WS for live stream (filtered client-side)
+    _fetch(`${OLLMO_API}/extensions/debugger/errors/${encodeURIComponent(name)}?lines=200`)
+      .then(r => r.json())
+      .then(data => {
+        output.innerHTML = "";
+        if (data.error) {
+          output.innerHTML = '<span class="dbg-line level-error">' + _esc(data.error) + '</span>';
+          return;
+        }
+        (data.lines || []).forEach(line => {
+          _dbgAppendLine(output, line, "error");
+        });
+        _dbgScrollBottom(output);
+        // Now connect WS for live updates, filtering client-side
+        _dbgConnectWs(name, true);
+      })
+      .catch(e => {
+        output.innerHTML = '<span class="dbg-line level-error">' + _esc("Fetch failed: " + e.message) + '</span>';
+      });
+  } else {
+    // Fetch recent logs via REST, then connect WS
+    _fetch(`${OLLMO_API}/extensions/debugger/logs/${encodeURIComponent(name)}?lines=100`)
+      .then(r => r.json())
+      .then(data => {
+        output.innerHTML = "";
+        if (data.error) {
+          output.innerHTML = '<span class="dbg-line level-error">' + _esc(data.error) + '</span>';
+          return;
+        }
+        (data.lines || []).forEach(line => {
+          // Detect level client-side for initial batch (REST returns plain strings)
+          let level = "info";
+          if (/error|exception|traceback|critical/i.test(line)) level = "error";
+          else if (/warn|warning/i.test(line)) level = "warn";
+          _dbgAppendLine(output, line, level);
+        });
+        _dbgScrollBottom(output);
+        _dbgConnectWs(name, false);
+      })
+      .catch(e => {
+        output.innerHTML = '<span class="dbg-line level-error">' + _esc("Fetch failed: " + e.message) + '</span>';
+      });
+  }
+}
+
+function _dbgConnectWs(container, errorsOnly) {
+  try {
+    _dbgWs = new WebSocket(_wsUrl(`/extensions/debugger/ws/${encodeURIComponent(container)}`));
+  } catch (e) {
+    console.warn("Debugger WS connect failed:", e.message);
+    return;
+  }
+  _dbgWs.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      // If errors-only filter is active, skip non-error/warn lines
+      if (errorsOnly && data.level === "info") return;
+      const output = document.getElementById("dbg-output");
+      if (!output) return;
+      _dbgAppendLine(output, data.line, data.level);
+      _dbgScrollBottom(output);
+    } catch {}
+  };
+  _dbgWs.onclose = () => {
+    // Reconnect if still viewing this container
+    if (_dbgContainer === container) {
+      setTimeout(() => {
+        if (_dbgContainer === container) _dbgConnectWs(container, errorsOnly);
+      }, 3000);
+    }
+  };
+  _dbgWs.onerror = () => { if (_dbgWs) _dbgWs.close(); };
+}
+
+function _dbgAppendLine(output, text, level) {
+  const div = document.createElement("div");
+  div.className = "dbg-line level-" + (level || "info");
+  div.textContent = text; // textContent is safe — no innerHTML injection
+  output.appendChild(div);
+  // Trim old lines
+  while (output.children.length > _DBG_MAX_LINES) {
+    output.removeChild(output.firstChild);
+  }
+}
+
+function _dbgScrollBottom(el) {
+  // Auto-scroll only if user is near bottom (within 40px)
+  const nearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
+  if (nearBottom) {
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+  }
+}
+
+function debuggerDisconnect() {
+  if (_dbgWs) {
+    _dbgWs.onclose = null;
+    _dbgWs.onerror = null;
+    _dbgWs.onmessage = null;
+    _dbgWs.close();
+    _dbgWs = null;
+  }
+}
+
 async function fetchLiveMonitorStats() {
   try {
-    const r = await fetch(`${OLLMO_API}/api/monitor/stats`);
+    const r = await _fetch(`${OLLMO_API}/api/monitor/stats`);
     const s = await r.json();
     const el = (id) => document.getElementById(id);
     el("lms-total").textContent = s.total_reqs;
@@ -2987,10 +3314,10 @@ async function fetchTopology() {
   if (!body) return;
   try {
     const [modesR, svcsR, routingR, statusR] = await Promise.all([
-      fetch(`${OLLMO_API}/modes`),
-      fetch(`${OLLMO_API}/config/services`),
-      fetch(`${OLLMO_API}/config/routing`),
-      fetch(`${OLLMO_API}/system/status`),
+      _fetch(`${OLLMO_API}/modes`),
+      _fetch(`${OLLMO_API}/config/services`),
+      _fetch(`${OLLMO_API}/config/routing`),
+      _fetch(`${OLLMO_API}/system/status`),
     ]);
     const modes    = await modesR.json();
     const services = await svcsR.json();
@@ -2998,7 +3325,7 @@ async function fetchTopology() {
     const status   = await statusR.json();
     renderTopology(body, modes, services, routing, status);
   } catch (e) {
-    body.innerHTML = `<span class="dim">Failed to load topology: ${e.message}</span>`;
+    body.innerHTML = `<span class="dim">Failed to load topology: ${_esc(e.message)}</span>`;
   }
 }
 
@@ -3129,7 +3456,7 @@ function renderTopology(body, modes, services, routing, status) {
 
 async function fetchOpenApiSpec() {
   try {
-    const r = await fetch(`${OLLMO_API}/openapi.json`);
+    const r = await _fetch(`${OLLMO_API}/openapi.json`);
     _openApiCache = await r.json();
     renderEndpoints(_openApiCache);
   } catch (e) {
@@ -3246,10 +3573,9 @@ async function startMonitor() {
     // Clean up stale WS to prevent handler leaks
     if (_monitorWs) { _monitorWs.onclose = null; _monitorWs.onerror = null; _monitorWs.onmessage = null; }
     try {
-      const probe = await fetch(`${OLLMO_API}/api/monitor/stats`).catch(() => null);
+      const probe = await _fetch(`${OLLMO_API}/api/monitor/stats`).catch(() => null);
       if (!probe || !probe.ok) { setTimeout(startMonitor, 3000); return; }
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      _monitorWs = new WebSocket(`${proto}//${location.host}/api/monitor/ws`);
+      _monitorWs = new WebSocket(_wsUrl('/api/monitor/ws'));
       _monitorWs.onmessage = (e) => {
         try {
           appendMonitorRow(JSON.parse(e.data));
@@ -3273,7 +3599,7 @@ function stopMonitor() {
 
 async function fetchMonitorStats() {
   try {
-    const r = await fetch(`${OLLMO_API}/api/monitor/stats`);
+    const r = await _fetch(`${OLLMO_API}/api/monitor/stats`);
     const s = await r.json();
     document.getElementById("ams-total").textContent = s.total_reqs;
     document.getElementById("ams-latency").textContent = `${s.avg_latency_ms} ms`;
@@ -3362,7 +3688,7 @@ function applyStatusUpdate(d) {
     if (d.services)               renderServices(d.services, d.enforcement?.kill_order);
     if (d.ram_tier !== undefined) renderRamTier(d.ram_tier);
     if (d.services) updateAdvStatusDots(d.services);
-    if (d.services) syncNodeStatuses(d.services);
+    if (d.services) syncNodeStatuses(d.services, d.vram);
     renderBenchmark(d.ollama_loaded || [], d.vram, d.gpu, d.ram);
 
     // Sync active modes from WS
@@ -3381,32 +3707,39 @@ function applyStatusUpdate(d) {
 }
 
 // --- WebSocket ---
+let _statusWs = null;
 function connectStatusWS() {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen  = () => {};
-  ws.onmessage = event => {
+  if (_statusWs) { _statusWs.onclose = null; _statusWs.close(); }
+  _statusWs = new WebSocket(_wsUrl('/ws'));
+  _statusWs.onopen  = () => {
+    const b = document.getElementById('ws-status-banner');
+    if (b) b.classList.add('hidden');
+  };
+  _statusWs.onmessage = event => {
     try {
       const d = JSON.parse(event.data);
       applyStatusUpdate(d);
     } catch(e) { /* ignore parse errors */ }
   };
-  ws.onclose = () => {
+  _statusWs.onclose = () => {
+    _statusWs = null;
+    const b = document.getElementById('ws-status-banner');
+    if (b) b.classList.remove('hidden');
     setTimeout(connectStatusWS, 3000);
   };
-  ws.onerror = () => { ws.close(); };
+  _statusWs.onerror = () => { _statusWs.close(); };
 }
 
 async function pollStorage() {
   try {
-    const r = await fetch(`${OLLMO_API}/config/storage/stats`);
+    const r = await _fetch(`${OLLMO_API}/config/storage/stats`);
     if (r.ok) { window._lastStorageStats = await r.json(); }
   } catch {}
 }
 
 async function poll() {
   try {
-    const r = await fetch(`${OLLMO_API}/system/status`);
+    const r = await _fetch(`${OLLMO_API}/system/status`);
     const d = await r.json();
     applyStatusUpdate(d);
   } catch (e) {
@@ -3418,13 +3751,13 @@ async function poll() {
 document.getElementById("save-template").addEventListener("click", async () => {
   const name = prompt("Template name:");
   if (!name) return;
-  await fetch(`${OLLMO_API}/templates/save?name=${encodeURIComponent(name)}`, { method: "POST" });
+  await _fetch(`${OLLMO_API}/templates/save?name=${encodeURIComponent(name)}`, { method: "POST" });
   loadTemplates();
 });
 
 async function loadTemplates() {
   try {
-    const r    = await fetch(`${OLLMO_API}/templates`);
+    const r    = await _fetch(`${OLLMO_API}/templates`);
     const list = await r.json();
     const el   = document.getElementById("template-list");
     el.innerHTML = "";
@@ -3433,7 +3766,7 @@ async function loadTemplates() {
       btn.className = "mode-btn";
       btn.textContent = name;
       btn.onclick   = () =>
-        fetch(`${OLLMO_API}/templates/${encodeURIComponent(name)}/load`, { method: "POST" })
+        _fetch(`${OLLMO_API}/templates/${encodeURIComponent(name)}/load`, { method: "POST" })
           .then(poll);
       el.appendChild(btn);
     });
@@ -3458,8 +3791,7 @@ function initFleetTab() {
 
 function fleetConnectWs() {
   if (_fleetWs) { _fleetWs.onclose = null; _fleetWs.close(); }
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  _fleetWs = new WebSocket(`${proto}//${location.host}/extensions/fleet/ws`);
+  _fleetWs = new WebSocket(_wsUrl('/extensions/fleet/ws'));
   _fleetWs.onmessage = (e) => {
     const data = JSON.parse(e.data);
     renderFleetNodes(data.nodes || []);
@@ -3509,7 +3841,7 @@ async function fleetSelectNode(nodeId) {
   document.getElementById("fleet-remote-remove").classList.remove("hidden");
   // Fetch full node detail with live status
   try {
-    const r = await fetch(`${OLLMO_API}/extensions/fleet/nodes/${nodeId}`);
+    const r = await _fetch(`${OLLMO_API}/extensions/fleet/nodes/${nodeId}`);
     const node = await r.json();
     if (node.error) { showAlert("warning", node.error); return; }
     updateFleetRemoteHeader(node);
@@ -3645,7 +3977,7 @@ function renderFleetRemoteServices(node) {
 async function fleetDispatchJob(type, target) {
   if (!_fleetSelectedNode) return;
   try {
-    const r = await fetch(`${OLLMO_API}/extensions/fleet/jobs`, {
+    const r = await _fetch(`${OLLMO_API}/extensions/fleet/jobs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ node_id: _fleetSelectedNode, type, target }),
@@ -3685,7 +4017,7 @@ function renderFleetJobs(jobs) {
 
 async function fleetScan() {
   try {
-    const r = await fetch(`${OLLMO_API}/extensions/fleet/discover`, { method: "POST" });
+    const r = await _fetch(`${OLLMO_API}/extensions/fleet/discover`, { method: "POST" });
     const d = await r.json();
     showAlert("info", `Discovery: found ${d.discovered} new node${d.discovered !== 1 ? "s" : ""}`);
   } catch (e) {
@@ -3696,7 +4028,7 @@ async function fleetScan() {
 async function fleetPingSelected() {
   if (!_fleetSelectedNode) return;
   try {
-    const r = await fetch(`${OLLMO_API}/extensions/fleet/nodes/${_fleetSelectedNode}/ping`, { method: "POST" });
+    const r = await _fetch(`${OLLMO_API}/extensions/fleet/nodes/${_fleetSelectedNode}/ping`, { method: "POST" });
     const d = await r.json();
     showAlert("info", `Ping: ${d.reachable ? "reachable" : "unreachable"}`);
   } catch (e) {
@@ -3707,7 +4039,7 @@ async function fleetPingSelected() {
 async function fleetRemoveSelected() {
   if (!_fleetSelectedNode) return;
   try {
-    await fetch(`${OLLMO_API}/extensions/fleet/nodes/${_fleetSelectedNode}`, { method: "DELETE" });
+    await _fetch(`${OLLMO_API}/extensions/fleet/nodes/${_fleetSelectedNode}`, { method: "DELETE" });
     _fleetSelectedNode = null;
     document.getElementById("fleet-remote-name").textContent = "Select a node";
     document.getElementById("fleet-remote-status").textContent = "";
@@ -3724,7 +4056,7 @@ async function fleetRemoveSelected() {
 
 async function fleetLoadSettings() {
   try {
-    const r = await fetch(`${OLLMO_API}/extensions/fleet/config`);
+    const r = await _fetch(`${OLLMO_API}/extensions/fleet/config`);
     const cfg = await r.json();
     document.getElementById("fleet-hb-mode").value = cfg.heartbeat_mode || "both";
     document.getElementById("fleet-hb-interval").value = cfg.heartbeat_interval || 30;
@@ -3743,7 +4075,7 @@ async function fleetSaveSettings() {
     discovery_interval: parseInt(document.getElementById("fleet-disc-interval").value),
   };
   try {
-    const r = await fetch(`${OLLMO_API}/extensions/fleet/config`, {
+    const r = await _fetch(`${OLLMO_API}/extensions/fleet/config`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -4048,11 +4380,11 @@ function initSettingsHandlers() {
   // Boot with system — API-backed, not localStorage
   const bootEl = document.getElementById("set-boot-with-system");
   if (bootEl) {
-    fetch(`${OLLMO_API}/config/boot`).then(r => r.json()).then(d => {
+    _fetch(`${OLLMO_API}/config/boot`).then(r => r.json()).then(d => {
       bootEl.checked = d.enabled !== false;
     }).catch(() => {});
     bootEl.addEventListener("change", () => {
-      fetch(`${OLLMO_API}/config/boot`, {
+      _fetch(`${OLLMO_API}/config/boot`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: bootEl.checked }),
@@ -4119,7 +4451,13 @@ function initSettingsHandlers() {
     reader.onload = (ev) => {
       try {
         const imported = JSON.parse(ev.target.result);
-        Object.assign(_settings, imported);
+        // Whitelist: only allow known setting keys to prevent prototype pollution / injection
+        const allowedKeys = new Set(Object.keys(DEFAULT_SETTINGS));
+        const sanitized = {};
+        for (const key of Object.keys(imported)) {
+          if (allowedKeys.has(key)) sanitized[key] = imported[key];
+        }
+        Object.assign(_settings, sanitized);
         saveSettings();
         applySettings();
         syncSettingsUI();
@@ -4161,6 +4499,27 @@ function initSettingsHandlers() {
     nameEl.value = "";
     renderWorkflowList();
   });
+
+  // API Token management
+  const tokenInput = document.getElementById('set-api-token');
+  if (tokenInput) {
+    tokenInput.value = _apiToken ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    document.getElementById('set-api-token-save').addEventListener('click', () => {
+      const val = tokenInput.value.trim();
+      if (val && val !== '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') {
+        _apiToken = val;
+        localStorage.setItem('oaio-api-token', _apiToken);
+        tokenInput.value = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+        showAlert('info', 'API token saved');
+      }
+    });
+    document.getElementById('set-api-token-clear').addEventListener('click', () => {
+      _apiToken = '';
+      localStorage.removeItem('oaio-api-token');
+      tokenInput.value = '';
+      showAlert('info', 'API token cleared');
+    });
+  }
 }
 
 // --- Workflow Saves ---
@@ -4189,14 +4548,14 @@ async function saveWorkflow(name) {
 
   // Capture active modes
   try {
-    const r = await fetch(`${OLLMO_API}/system/status`);
+    const r = await _fetch(`${OLLMO_API}/system/status`);
     const d = await r.json();
     state.activeModes = d.active_modes || [];
   } catch {}
 
   // Capture routing
   try {
-    const r = await fetch(`${OLLMO_API}/config/routing`);
+    const r = await _fetch(`${OLLMO_API}/config/routing`);
     state.routing = await r.json();
   } catch {}
 
@@ -4222,7 +4581,7 @@ async function loadWorkflow(name) {
   // Restore routing
   if (state.routing) {
     try {
-      await fetch(`${OLLMO_API}/config/routing`, {
+      await _fetch(`${OLLMO_API}/config/routing`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(state.routing),
       });
@@ -4240,7 +4599,7 @@ async function loadWorkflow(name) {
   if (state.activeModes && state.activeModes.length > 0) {
     for (const mode of state.activeModes) {
       try {
-        await fetch(`${OLLMO_API}/modes/${encodeURIComponent(mode)}/activate`, { method: "POST" });
+        await _fetch(`${OLLMO_API}/modes/${encodeURIComponent(mode)}/activate`, { method: "POST" });
       } catch {}
     }
   }
@@ -4270,12 +4629,16 @@ function renderWorkflowList() {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
     });
     return `<div class="wf-item">
-      <span class="wf-item-name">${name}</span>
+      <span class="wf-item-name">${_esc(name)}</span>
       <span class="wf-item-date">${date}</span>
-      <button class="mode-btn" onclick="loadWorkflow('${name.replace(/'/g, "\\'")}')">LOAD</button>
-      <button class="mode-btn" onclick="deleteWorkflow('${name.replace(/'/g, "\\'")}')">DEL</button>
+      <button class="mode-btn wf-load-btn" data-wf="${_esc(name)}">LOAD</button>
+      <button class="mode-btn wf-del-btn" data-wf="${_esc(name)}">DEL</button>
     </div>`;
   }).join("");
+
+  // Wire up workflow button listeners (avoid inline onclick with user data)
+  container.querySelectorAll('.wf-load-btn').forEach(btn => btn.addEventListener('click', () => loadWorkflow(btn.dataset.wf)));
+  container.querySelectorAll('.wf-del-btn').forEach(btn => btn.addEventListener('click', () => deleteWorkflow(btn.dataset.wf)));
 }
 
 // --- Init ---
@@ -4302,6 +4665,7 @@ fetchPathsForRamTier();
 loadTemplates();
 connectStatusWS();
 startLiveMonitor();
+initDebuggerCard();
 setInterval(pollStorage, 30000);
 pollStorage();
 

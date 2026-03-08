@@ -52,7 +52,7 @@ async function registerServiceNodes() {
       const _grpHex = _grpKey ? (_cs.getPropertyValue(_grpKey).trim() || "#555") : "";
       this.color   = _cs.getPropertyValue("--bg3").trim() || "#161616";
       this.bgcolor = _grpHex ? `rgb(${parseInt(_grpHex.slice(1,3),16)*0.12|0},${parseInt(_grpHex.slice(3,5),16)*0.12|0},${parseInt(_grpHex.slice(5,7),16)*0.12|0})` : (_cs.getPropertyValue("--bg2").trim() || "#0f0f0f");
-      this.size    = [180, 70];
+      this.size    = [180, 90];
       this._svc = {
         name:       def.name,
         group:      def.group,
@@ -63,6 +63,13 @@ async function registerServiceNodes() {
         status:     "unknown",
         ramUsed:    0,
       };
+      // Sparkline rolling buffer (30 samples, updated from WS 1Hz push)
+      this._sparkData  = [];
+      this._sparkMax   = 30;
+      // Cache the full group hex color for sparkline rendering
+      this._grpHex = _grpHex || "#555";
+      this._sparkPhase = 0;        // animation phase for glow pulse
+      this._sparkAnim  = null;     // requestAnimationFrame id
       this._refreshStatus();
     }
 
@@ -94,6 +101,108 @@ async function registerServiceNodes() {
                      : (_cs.getPropertyValue("--yellow").trim() || "#ffd740");
       ctx.fillStyle = barColor;
       ctx.fillRect(0, 0, this.size[0], 2);
+
+      // ── Sparkline ──────────────────────────────────────
+      const buf = this._sparkData;
+      if (!buf || buf.length < 2) return;
+
+      const pad   = 6;
+      const sparkH = 22;
+      const sparkY = this.size[1] - sparkH - pad;
+      const sparkW = this.size[0] - pad * 2;
+      const sparkX = pad;
+
+      // Normalize values 0..1
+      let maxVal = 0;
+      for (let i = 0; i < buf.length; i++) { if (buf[i] > maxVal) maxVal = buf[i]; }
+      if (maxVal < 0.01) maxVal = 1;  // avoid div-by-zero for all-zero
+
+      const stepX = sparkW / (this._sparkMax - 1);
+
+      // Build path points
+      const pts = [];
+      for (let i = 0; i < buf.length; i++) {
+        pts.push({
+          x: sparkX + (this._sparkMax - buf.length + i) * stepX,
+          y: sparkY + sparkH - (buf[i] / maxVal) * sparkH,
+        });
+      }
+
+      // Filled area (subtle)
+      const grpColor = this._grpHex;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, sparkY + sparkH);
+      for (let i = 0; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[pts.length - 1].x, sparkY + sparkH);
+      ctx.closePath();
+      ctx.fillStyle = grpColor + "18";  // ~9% opacity hex suffix
+      ctx.fill();
+
+      // Sparkline stroke
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.strokeStyle = grpColor + "cc";  // 80% opacity
+      ctx.lineWidth   = 1.5;
+      ctx.lineJoin    = "round";
+      ctx.stroke();
+
+      // Glow dot on latest value (pulsing when animations enabled)
+      if (s.status === "running") {
+        const last = pts[pts.length - 1];
+        const noAnim = document.body.classList.contains("no-animations");
+        const phase = noAnim ? 0 : (this._sparkPhase || 0);
+        const glowR = noAnim ? 2.5 : 2.5 + Math.sin(phase) * 1.0;
+        const glowA = noAnim ? 0.7 : 0.6 + Math.sin(phase) * 0.25;
+        ctx.beginPath();
+        ctx.arc(last.x, last.y, glowR, 0, Math.PI * 2);
+        ctx.fillStyle = grpColor;
+        ctx.globalAlpha = glowA;
+        ctx.fill();
+        // Outer glow ring
+        if (!noAnim) {
+          ctx.beginPath();
+          ctx.arc(last.x, last.y, glowR + 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = grpColor;
+          ctx.globalAlpha = glowA * 0.25;
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    };
+
+    // Push a new sparkline sample (called from syncNodeStatuses)
+    NodeClass.prototype._sparkPush = function(value) {
+      this._sparkData.push(value);
+      if (this._sparkData.length > this._sparkMax) this._sparkData.shift();
+      // Start glow animation if not running
+      if (!this._sparkAnim) this._sparkStartAnim();
+    };
+
+    // Smooth glow pulse animation (throttled to ~20fps to stay lightweight)
+    NodeClass.prototype._sparkStartAnim = function() {
+      const self = this;
+      let last = performance.now();
+      const interval = 50;  // ms between frames (~20fps)
+      function tick(now) {
+        self._sparkAnim = requestAnimationFrame(tick);
+        if (now - last < interval) return;  // throttle
+        // Skip redraw if CONFIG tab is not visible
+        const configTab = document.getElementById("tab-config");
+        if (configTab && !configTab.classList.contains("active")) return;
+        const dt = (now - last) / 1000;
+        last = now;
+        self._sparkPhase = (self._sparkPhase || 0) + dt * 3.0;  // ~0.5Hz pulse
+        if (self._sparkPhase > Math.PI * 200) self._sparkPhase -= Math.PI * 200;
+        self.setDirtyCanvas(true);
+      }
+      this._sparkAnim = requestAnimationFrame(tick);
+    };
+
+    // Cleanup animation on node removal
+    NodeClass.prototype.onRemoved = function() {
+      if (this._sparkAnim) { cancelAnimationFrame(this._sparkAnim); this._sparkAnim = null; }
     };
 
     NodeClass.prototype.onMouseDown = function(e, pos) {

@@ -15,6 +15,8 @@
 
   <!-- ALERT BANNER -->
   <div id="alert-banner" class="alert-banner hidden"></div>
+  <!-- WS RECONNECT BANNER -->
+  <div id="ws-status-banner" class="ws-status-banner hidden">CONNECTION LOST &mdash; reconnecting&hellip;</div>
 
   <!-- TAB NAV + SECTION TOGGLES -->
   <div id="tab-nav">
@@ -169,6 +171,27 @@
       <div class="card" id="card-services">
         <div class="card-title">SERVICES <span class="dim" style="font-size:7px;font-weight:normal;letter-spacing:0">· sorted by kill order</span></div>
         <div id="services-list"><span class="dim">Waiting for data…</span></div>
+      </div>
+
+      <!-- Debugger Logs -->
+      <div class="card card-full" id="card-debugger">
+        <div class="card-title">LOGS <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live container logs</span></div>
+        <div class="dbg-controls">
+          <div class="dbg-containers" id="dbg-containers">
+            <button class="mode-btn dbg-ctr-btn" data-ctr="ollama">ollama</button>
+            <button class="mode-btn dbg-ctr-btn" data-ctr="open-webui">open-webui</button>
+            <button class="mode-btn dbg-ctr-btn" data-ctr="kokoro-tts">kokoro-tts</button>
+            <button class="mode-btn dbg-ctr-btn" data-ctr="rvc">rvc</button>
+            <button class="mode-btn dbg-ctr-btn" data-ctr="f5-tts">f5-tts</button>
+            <button class="mode-btn dbg-ctr-btn" data-ctr="comfyui">comfyui</button>
+            <button class="mode-btn dbg-ctr-btn" data-ctr="styletts2">styletts2</button>
+          </div>
+          <div class="dbg-filters">
+            <button class="mode-btn dbg-filter-btn active" data-filter="all">ALL</button>
+            <button class="mode-btn dbg-filter-btn" data-filter="errors">ERRORS ONLY</button>
+          </div>
+        </div>
+        <div class="dbg-output" id="dbg-output"><span class="dim">Select a container to stream logs</span></div>
       </div>
 
     </div>
@@ -665,6 +688,12 @@
               <option value="10000">10s</option>
             </select>
           </div>
+          <div class="settings-row">
+            <label>API Token</label>
+            <input type="password" id="set-api-token" placeholder="Not set" style="flex:1;max-width:200px" class="route-input" />
+            <button class="mode-btn" id="set-api-token-save">SAVE</button>
+            <button class="mode-btn" id="set-api-token-clear">CLEAR</button>
+          </div>
         </div>
       </div>
 
@@ -790,10 +819,145 @@
   <!-- ══ TAB: HELP ══════════════════════════════════════════ -->
   <div class="tab-content" id="tab-help">
     <div class="tab-grid">
+
+      <!-- Quick Start -->
       <div class="card card-full">
-        <div class="card-title">HELP</div>
-        <div class="dim" style="padding:20px 0;text-align:center">TBD</div>
+        <div class="card-title">QUICK START</div>
+        <div class="settings-group" style="gap:6px">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">1.</span><span>Pick a <b>mode</b> in the LIVE tab &mdash; oLLMo (LLM), oAudio (voice), or comfyui-flex (image gen).</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">2.</span><span>Services auto-start. Watch the <b>telemetry strip</b> for VRAM/RAM usage.</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">3.</span><span>Use the service UIs &mdash; <b>Open-WebUI</b> (:3000) for chat, <b>ComfyUI</b> (:8188) for images.</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">4.</span><span>Monitor everything in the <b>LIVE</b> tab &mdash; benchmark, API traffic, enforcement, kill log.</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">5.</span><span>Customize nodes, routing, and resources in <b>CONFIG</b>.</span></div>
+          <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+            <span class="dim" style="font-size:10px">If something goes wrong, hit the red <b style="color:var(--red)">KILL ALL</b> button in the top bar to stop all services and clear modes instantly.</span>
+          </div>
+        </div>
       </div>
+
+      <!-- Tabs -->
+      <div class="card">
+        <div class="card-title">TABS</div>
+        <div class="settings-group" style="gap:4px;font-size:11px">
+          <div><b style="color:var(--accent)">LIVE</b> <span class="dim">&mdash;</span> Real-time dashboard: modes, services, enforcement, benchmark, API monitor.</div>
+          <div><b style="color:var(--accent)">CONFIG</b> <span class="dim">&mdash;</span> LiteGraph node editor: wire services, manage modes, configure resources.</div>
+          <div><b style="color:var(--accent)">ADVANCED</b> <span class="dim">&mdash;</span> Disk map, port map, volume map, connection map, templates.</div>
+          <div><b style="color:var(--accent)">API</b> <span class="dim">&mdash;</span> How-it-works guide, live topology, OpenAPI endpoints, request monitor.</div>
+          <div><b style="color:var(--accent)">SETTINGS</b> <span class="dim">&mdash;</span> Theme, layout, background, behavior, workflow saves, data export.</div>
+          <div><b style="color:var(--accent)">FLEET</b> <span class="dim">&mdash;</span> Multi-node orchestration: discover, monitor, and dispatch to remote nodes.</div>
+          <div><b style="color:var(--accent)">HELP</b> <span class="dim">&mdash;</span> You are here.</div>
+        </div>
+      </div>
+
+      <!-- Key Concepts -->
+      <div class="card">
+        <div class="card-title">KEY CONCEPTS</div>
+        <div class="settings-group" style="gap:8px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">MODES</div>
+            <span class="dim">Groups of services with VRAM budgets. Only one mode per GPU &mdash; activating a new mode displaces the old one. Three built-in: oLLMo (11 GB), oAudio (5 GB), comfyui-flex (18 GB).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">ENFORCEMENT</div>
+            <span class="dim">Automatic OOM protection. Warns at 85% VRAM, hard-kills lowest-priority services at 95%. Configurable thresholds and per-service priority (1&ndash;5). Toggle on/off in LIVE.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SYMLINKS</div>
+            <span class="dim">The /mnt/oaio/ abstraction layer &mdash; 16 symlinks that decouple services from physical disk paths. Enables storage tiering (NVMe / SATA / RAM) without reconfiguring containers.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SERVICES</div>
+            <span class="dim">Docker containers managed by oAIo. Each has a group (oLLM, oAudio, Render, Control), priority, memory mode, and kill limit (soft warning vs hard cutoff).</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ports & URLs -->
+      <div class="card">
+        <div class="card-title">PORTS &amp; URLS</div>
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:0.1em">
+              <th style="text-align:left;padding:4px 8px 4px 0">Port</th>
+              <th style="text-align:left;padding:4px 8px">Service</th>
+              <th style="text-align:left;padding:4px 8px">Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">9000</td>
+              <td style="padding:4px 8px">oAIo</td>
+              <td style="padding:4px 8px" class="dim">Main API + frontend</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8002</td>
+              <td style="padding:4px 8px">oAudio</td>
+              <td style="padding:4px 8px" class="dim">Voice pipeline API</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">3000</td>
+              <td style="padding:4px 8px">Open-WebUI</td>
+              <td style="padding:4px 8px" class="dim">Chat interface + RAG</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">11434</td>
+              <td style="padding:4px 8px">Ollama</td>
+              <td style="padding:4px 8px" class="dim">LLM inference API</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8188</td>
+              <td style="padding:4px 8px">ComfyUI</td>
+              <td style="padding:4px 8px" class="dim">Image generation</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8000</td>
+              <td style="padding:4px 8px">Kokoro TTS</td>
+              <td style="padding:4px 8px" class="dim">Text-to-speech synthesis</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8001</td>
+              <td style="padding:4px 8px">RVC Proxy</td>
+              <td style="padding:4px 8px" class="dim">Voice conversion</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">7860</td>
+              <td style="padding:4px 8px">F5-TTS</td>
+              <td style="padding:4px 8px" class="dim">Voice cloning</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">7870</td>
+              <td style="padding:4px 8px">StyleTTS2</td>
+              <td style="padding:4px 8px" class="dim">Voice prototyping</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tips -->
+      <div class="card">
+        <div class="card-title">TIPS</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div><span style="color:var(--red);font-weight:bold">KILL ALL</span> <span class="dim">&mdash;</span> Stops every running service and clears all active modes. Use when VRAM is stuck or a service is unresponsive.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Mode switching</span> <span class="dim">&mdash;</span> Activating a new mode gracefully stops displaced services before starting new ones. No need to manually kill first.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Node editor</span> <span class="dim">&mdash;</span> In CONFIG, drag to pan, scroll to zoom. Click a node to configure its resources. Double-click to open its service page.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">VRAM ceiling</span> <span class="dim">&mdash;</span> Set a virtual VRAM limit in the Enforcement card to test mode fits without real hardware constraints.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Telemetry strip</span> <span class="dim">&mdash;</span> Toggle with the TELEMETRY pill in the top bar. Shows live VRAM, RAM, GPU utilization, and active modes.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Workflows</span> <span class="dim">&mdash;</span> Save complete workspace state (modes, layout, routing, settings) in SETTINGS &gt; Workflow Saves.</div>
+        </div>
+      </div>
+
+      <!-- Links -->
+      <div class="card">
+        <div class="card-title">LINKS</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div><a href="https://github.com/zabyxc01/oAIo" target="_blank" rel="noopener" style="color:var(--accent)">GitHub Repository</a> <span class="dim">&mdash; source code, README, and releases</span></div>
+          <div><a href="https://github.com/zabyxc01/oAIo/issues" target="_blank" rel="noopener" style="color:var(--accent)">Report an Issue</a> <span class="dim">&mdash; bugs, feature requests, questions</span></div>
+          <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+            <span class="dim" style="font-size:10px">oAIo &mdash; local AI workstation orchestration. Ryzen 9 3900X &middot; RX 7900 XT 20 GB &middot; 62 GB RAM.</span>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 

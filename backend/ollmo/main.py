@@ -4,6 +4,7 @@ Port: 9000
 """
 import copy
 import json
+import math
 import os
 import re
 import asyncio
@@ -23,8 +24,75 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 _CONTAINER_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*$')
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+from urllib.parse import parse_qs
+
+# ── Optional API token auth ──────────────────────────────────────────────────
+_API_TOKEN = os.environ.get("OAIO_API_TOKEN", "").strip() or None
+
+_AUTH_SKIP_PREFIXES = ("/static", "/litegraph", "/style", "/app", "/nodes", "/ext", "/panels",
+                       "/extensions-loader", "/favicon")
+_AUTH_SKIP_EXTENSIONS = frozenset((".js", ".css", ".html", ".ico", ".svg", ".png",
+                                   ".woff", ".woff2", ".ttf", ".map"))
+
+
+class TokenAuthMiddleware:
+    """ASGI middleware — optional Bearer token auth.
+
+    No-op if OAIO_API_TOKEN is unset.  Static assets and root path always pass.
+    WebSocket auth uses ?token=<token> query param.
+    """
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if _API_TOKEN is None:
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+
+        # Allow root (frontend)
+        if path == "/":
+            await self.app(scope, receive, send)
+            return
+        # Allow static assets by prefix
+        if any(path.startswith(p) for p in _AUTH_SKIP_PREFIXES):
+            await self.app(scope, receive, send)
+            return
+        # Allow static assets by file extension
+        last_seg = path.rsplit("/", 1)[-1]
+        if "." in last_seg:
+            ext = "." + last_seg.rsplit(".", 1)[-1].lower()
+            if ext in _AUTH_SKIP_EXTENSIONS:
+                await self.app(scope, receive, send)
+                return
+
+        # WebSocket: token in query string
+        if scope["type"] == "websocket":
+            qs = scope.get("query_string", b"").decode("utf-8", errors="replace")
+            params = parse_qs(qs)
+            token = params.get("token", [None])[0]
+            if token != _API_TOKEN:
+                await send({"type": "websocket.close", "code": 4001})
+                return
+            await self.app(scope, receive, send)
+            return
+
+        # HTTP: Authorization: Bearer <token>
+        headers = dict(scope.get("headers", []))
+        auth_val = headers.get(b"authorization", b"").decode("utf-8", errors="replace")
+        if auth_val == f"Bearer {_API_TOKEN}":
+            await self.app(scope, receive, send)
+            return
+
+        resp = JSONResponse({"error": "unauthorized"}, status_code=401)
+        await resp(scope, receive, send)
+
 
 class _NoCacheStatic(StaticFiles):
     """StaticFiles that disables browser caching — keeps frontend changes instant."""
@@ -251,11 +319,36 @@ app = FastAPI(title="oLLMo", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:9000", "http://127.0.0.1:9000", "http://localhost:3000", "http://127.0.0.1:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+class SecurityHeadersMiddleware:
+    """ASGI middleware — sets security headers on every HTTP response."""
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message.get("type") == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"content-security-policy",
+                    b"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'"))
+                headers.append((b"x-frame-options", b"DENY"))
+                headers.append((b"x-content-type-options", b"nosniff"))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLogMiddleware)
+if _API_TOKEN:
+    app.add_middleware(TokenAuthMiddleware)
 
 CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
 TEMPLATES_DIR     = Path(__file__).parent.parent.parent / "templates"
@@ -579,6 +672,8 @@ def list_templates():
 
 @app.post("/templates/save", tags=["Templates"])
 def save_template(name: str, description: str = ""):
+    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+        raise HTTPException(status_code=400, detail="Invalid template name: only alphanumeric, dash, underscore allowed")
     TEMPLATES_DIR.mkdir(exist_ok=True)
     path = (TEMPLATES_DIR / f"{name}.json").resolve()
     if not str(path).startswith(str(TEMPLATES_DIR.resolve())):
@@ -598,6 +693,8 @@ def save_template(name: str, description: str = ""):
 
 @app.post("/templates/{name}/load", tags=["Templates"])
 def load_template(name: str):
+    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+        raise HTTPException(status_code=400, detail="Invalid template name: only alphanumeric, dash, underscore allowed")
     path = (TEMPLATES_DIR / f"{name}.json").resolve()
     if not str(path).startswith(str(TEMPLATES_DIR.resolve())):
         return {"error": "Invalid template name"}
@@ -626,7 +723,8 @@ async def ollama_models():
         models = r.json().get("models", [])
         return [{"name": m["name"], "size_gb": round(m["size"] / 1e9, 1)} for m in models]
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[oLLMo] ollama_models error: {e}")
+        return {"error": "Failed to list Ollama models"}
 
 
 @app.post("/services/ollama/models/{name}/load", tags=["Ollama"])
@@ -637,7 +735,8 @@ async def load_ollama_model(name: str):
                 json={"model": name, "prompt": "", "stream": False})
         return {"loaded": name}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[oLLMo] load_ollama_model error: {e}")
+        return {"error": "Failed to load model"}
 
 
 @app.post("/services/ollama/models/pull", tags=["Ollama"])
@@ -651,10 +750,12 @@ async def pull_ollama_model(body: dict):
                 json={"name": name, "stream": False})
             data = r.json()
             if data.get("error"):
-                return {"error": data["error"]}
+                print(f"[oLLMo] pull_ollama_model upstream error: {data['error']}")
+                return {"error": "Failed to pull model"}
             return {"pulled": name, "status": data.get("status", "success")}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[oLLMo] pull_ollama_model error: {e}")
+        return {"error": "Failed to pull model"}
 
 
 @app.delete("/services/ollama/models/{name}", tags=["Ollama"])
@@ -665,9 +766,11 @@ async def delete_ollama_model(name: str):
                 json={"name": name})
             if r.status_code == 200:
                 return {"deleted": name}
-            return {"error": f"Failed to delete: {r.text}"}
+            print(f"[oLLMo] delete_ollama_model failed: {r.text}")
+            return {"error": "Failed to delete model"}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[oLLMo] delete_ollama_model error: {e}")
+        return {"error": "Failed to delete model"}
 
 
 @app.get("/services/rvc/models", tags=["RVC"])
@@ -675,12 +778,13 @@ def rvc_models():
     try:
         client = docker_sdk.from_env()
         container = client.containers.get("rvc")
-        result = container.exec_run("find /rvc/assets/weights -name '*.pth'")
+        result = container.exec_run(["find", "/rvc/assets/weights", "-name", "*.pth"])
         files = result.output.decode().strip().split("\n")
         return [{"name": Path(f).stem, "file": Path(f).name}
                 for f in files if f and f.endswith(".pth")]
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[oLLMo] rvc_models error: {e}")
+        return {"error": "Failed to list RVC models"}
 
 
 @app.post("/services/rvc/models/{name}/activate", tags=["RVC"])
@@ -703,7 +807,8 @@ async def activate_rvc_model(name: str):
         index_path = result.get("data", [None, None, None, None])[-1] or ""
         return {"activated": name, "index": index_path}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[oLLMo] activate_rvc_model error: {e}")
+        return {"error": "Failed to activate RVC model"}
 
 
 @app.get("/services/comfyui/workflows", tags=["ComfyUI"])
@@ -1076,6 +1181,8 @@ def enforcement_set_ceiling(body: dict):
             _enforcer.vram_virtual_ceiling_gb = None
         else:
             val = float(val)
+            if math.isnan(val) or math.isinf(val):
+                return {"error": "VRAM ceiling must be a finite number"}
             if val > real_total:
                 warnings.append(f"Ceiling {val}GB exceeds real VRAM ({real_total}GB)")
             if val < 0:
@@ -1083,9 +1190,15 @@ def enforcement_set_ceiling(body: dict):
             _enforcer.vram_virtual_ceiling_gb = val
 
     if "warn_threshold" in body:
-        resources.WARN_THRESHOLD = max(0.0, min(1.0, float(body["warn_threshold"])))
+        wt = float(body["warn_threshold"])
+        if math.isnan(wt) or math.isinf(wt):
+            return {"error": "warn_threshold must be a finite number"}
+        resources.WARN_THRESHOLD = max(0.0, min(1.0, wt))
     if "hard_threshold" in body:
-        resources.HARD_THRESHOLD = max(0.0, min(1.0, float(body["hard_threshold"])))
+        ht = float(body["hard_threshold"])
+        if math.isnan(ht) or math.isinf(ht):
+            return {"error": "hard_threshold must be a finite number"}
+        resources.HARD_THRESHOLD = max(0.0, min(1.0, ht))
 
     effective = _enforcer.vram_virtual_ceiling_gb or real_total
     return {

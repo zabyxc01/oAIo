@@ -14,8 +14,50 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from contextlib import asynccontextmanager
+
+# ── Optional API token auth ──────────────────────────────────────────────────
+_API_TOKEN = os.environ.get("OAIO_API_TOKEN", "").strip() or None
+
+
+class TokenAuthMiddleware:
+    """ASGI middleware — optional Bearer token auth.
+
+    No-op if OAIO_API_TOKEN is unset.  All oAudio endpoints require auth.
+    """
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if _API_TOKEN is None:
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        auth_val = headers.get(b"authorization", b"").decode("utf-8", errors="replace")
+        if auth_val == f"Bearer {_API_TOKEN}":
+            await self.app(scope, receive, send)
+            return
+
+        resp = JSONResponse({"error": "unauthorized"}, status_code=401)
+        await resp(scope, receive, send)
+
+
+_ALLOWED_AUDIO_SUFFIXES = {".wav", ".mp3", ".ogg", ".flac", ".m4a"}
+
+
+def _safe_suffix(filename: str | None) -> str:
+    """Extract and validate audio file extension. Returns '.wav' if invalid or missing."""
+    if not filename:
+        return ".wav"
+    suffix = Path(filename).suffix.lower()
+    return suffix if suffix in _ALLOWED_AUDIO_SUFFIXES else ".wav"
 
 KOKORO_URL  = os.environ.get("KOKORO_URL",  "http://localhost:8000")
 RVC_PROXY   = os.environ.get("RVC_PROXY",   "http://localhost:8001")
@@ -48,12 +90,37 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="oAudio", version="0.1.0", lifespan=lifespan)
 
+class SecurityHeadersMiddleware:
+    """ASGI middleware — sets security headers on every HTTP response."""
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message.get("type") == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"content-security-policy",
+                    b"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'"))
+                headers.append((b"x-frame-options", b"DENY"))
+                headers.append((b"x-content-type-options", b"nosniff"))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:9000", "http://127.0.0.1:9000", "http://localhost:3000", "http://127.0.0.1:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
+if _API_TOKEN:
+    app.add_middleware(TokenAuthMiddleware)
 
 for d in [PROXY_OUT, WEBUI_OUT, CLONE_OUT, TEMP_OUT]:
     d.mkdir(parents=True, exist_ok=True)
@@ -66,7 +133,7 @@ def _transcribe(audio_bytes: bytes, filename: str) -> str:
         from faster_whisper import WhisperModel
         _whisper_model = WhisperModel("tiny", device="cpu",
                                       download_root=str(HF_CACHE / "whisper"))
-    tmp = TEMP_OUT / f"ref_{uuid.uuid4().hex}_{Path(filename).name}"
+    tmp = TEMP_OUT / f"ref_{uuid.uuid4().hex}{_safe_suffix(filename)}"
     tmp.write_bytes(audio_bytes)
     try:
         segments, _ = _whisper_model.transcribe(str(tmp), beam_size=1)
@@ -99,7 +166,7 @@ async def speak(req: SpeakRequest):
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(
             f"{RVC_PROXY}/v1/audio/speech",
-            json={"input": req.text, "voice": req.voice}
+            json={"input": req.text, "voice": req.voice, "rvc_model": req.model}
         )
     r.raise_for_status()
     out = PROXY_OUT / f"speak_{uuid.uuid4().hex}.mp3"
@@ -121,8 +188,8 @@ async def convert(
     async with httpx.AsyncClient(timeout=180.0) as client:
         r = await client.post(
             f"{RVC_PROXY}/convert",
-            files={"file": (file.filename, audio_bytes, file.content_type or "audio/wav")},
-            data={"transpose": transpose},
+            files={"file": (f"upload{_safe_suffix(file.filename)}", audio_bytes, file.content_type or "audio/wav")},
+            data={"transpose": transpose, "model": model},
         )
     r.raise_for_status()
     return Response(content=r.content, media_type="audio/mpeg")
@@ -152,7 +219,7 @@ async def clone(
         # 1. Upload ref audio to F5-TTS
         upload_r = await client.post(
             f"{F5_TTS_URL}/gradio_api/upload",
-            files={"files": (ref_audio.filename, audio_bytes,
+            files={"files": (f"ref{_safe_suffix(ref_audio.filename)}", audio_bytes,
                              ref_audio.content_type or "audio/wav")},
         )
         upload_r.raise_for_status()
