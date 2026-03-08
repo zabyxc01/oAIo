@@ -1,0 +1,556 @@
+{
+  "ollama": {
+    "service": "ollama",
+    "url": "http://ollama:11434",
+    "scan_time": "2026-03-08T10:26:01.824542Z",
+    "reachable": true,
+    "api_type": "openai_compat",
+    "openapi_spec": null,
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "summary": "Chat completions",
+        "parameters": [],
+        "tags": [
+          "openai"
+        ],
+        "source": "openai_compat"
+      },
+      {
+        "method": "POST",
+        "path": "/v1/embeddings",
+        "summary": "Embeddings",
+        "parameters": [],
+        "tags": [
+          "openai"
+        ],
+        "source": "openai_compat"
+      },
+      {
+        "method": "GET",
+        "path": "/v1/models",
+        "summary": "List models",
+        "parameters": [],
+        "tags": [
+          "openai"
+        ],
+        "source": "openai_compat"
+      },
+      {
+        "method": "GET",
+        "path": "/api/version",
+        "summary": "API version",
+        "parameters": [],
+        "tags": [
+          "generic"
+        ],
+        "source": "probe"
+      }
+    ],
+    "capabilities": [
+      "chat",
+      "embeddings"
+    ],
+    "suggested_io": {
+      "inputs": [
+        [
+          "text",
+          "string"
+        ]
+      ],
+      "outputs": [
+        [
+          "response",
+          "string"
+        ],
+        [
+          "embedding",
+          "array"
+        ]
+      ]
+    }
+  },
+  "kokoro-tts": {
+    "service": "kokoro-tts",
+    "url": "http://kokoro-tts:8000",
+    "scan_time": "2026-03-08T10:25:26.484254Z",
+    "reachable": true,
+    "api_type": "openapi",
+    "openapi_spec": {
+      "openapi": "3.1.0",
+      "info": {
+        "title": "FastAPI",
+        "version": "0.1.0"
+      },
+      "paths": {
+        "/v1/models": {
+          "get": {
+            "summary": "List Models",
+            "operationId": "list_models_v1_models_get",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/v1/audio/voices": {
+          "get": {
+            "summary": "List Voices",
+            "operationId": "list_voices_v1_audio_voices_get",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/v1/audio/speech": {
+          "post": {
+            "summary": "Synthesize",
+            "operationId": "synthesize_v1_audio_speech_post",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/SpeechRequest"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "components": {
+        "schemas": {
+          "HTTPValidationError": {
+            "properties": {
+              "detail": {
+                "items": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "type": "array",
+                "title": "Detail"
+              }
+            },
+            "type": "object",
+            "title": "HTTPValidationError"
+          },
+          "SpeechRequest": {
+            "properties": {
+              "model": {
+                "type": "string",
+                "title": "Model",
+                "default": "tts-1"
+              },
+              "input": {
+                "type": "string",
+                "title": "Input"
+              },
+              "voice": {
+                "type": "string",
+                "title": "Voice",
+                "default": "alloy"
+              },
+              "response_format": {
+                "type": "string",
+                "title": "Response Format",
+                "default": "mp3"
+              },
+              "speed": {
+                "type": "number",
+                "title": "Speed",
+                "default": 1.0
+              }
+            },
+            "type": "object",
+            "required": [
+              "input"
+            ],
+            "title": "SpeechRequest"
+          },
+          "ValidationError": {
+            "properties": {
+              "loc": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "array",
+                "title": "Location"
+              },
+              "msg": {
+                "type": "string",
+                "title": "Message"
+              },
+              "type": {
+                "type": "string",
+                "title": "Error Type"
+              },
+              "input": {
+                "title": "Input"
+              },
+              "ctx": {
+                "type": "object",
+                "title": "Context"
+              }
+            },
+            "type": "object",
+            "required": [
+              "loc",
+              "msg",
+              "type"
+            ],
+            "title": "ValidationError"
+          }
+        }
+      }
+    },
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/v1/models",
+        "summary": "List Models",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      },
+      {
+        "method": "GET",
+        "path": "/v1/audio/voices",
+        "summary": "List Voices",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      },
+      {
+        "method": "POST",
+        "path": "/v1/audio/speech",
+        "summary": "Synthesize",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      }
+    ],
+    "capabilities": [
+      "tts"
+    ],
+    "suggested_io": {
+      "inputs": [
+        [
+          "text",
+          "string"
+        ]
+      ],
+      "outputs": [
+        [
+          "audio",
+          "audio"
+        ]
+      ]
+    }
+  },
+  "rvc": {
+    "service": "rvc",
+    "url": "http://rvc:8001",
+    "scan_time": "2026-03-08T10:26:01.899702Z",
+    "reachable": true,
+    "api_type": "openapi",
+    "openapi_spec": {
+      "openapi": "3.0.2",
+      "info": {
+        "title": "FastAPI",
+        "version": "0.1.0"
+      },
+      "paths": {
+        "/v1/models": {
+          "get": {
+            "summary": "List Models",
+            "operationId": "list_models_v1_models_get",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/v1/audio/speech": {
+          "post": {
+            "summary": "Synthesize",
+            "operationId": "synthesize_v1_audio_speech_post",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/SpeechRequest"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/convert": {
+          "post": {
+            "summary": "Convert",
+            "description": "Audio file \u2192 RVC voice conversion \u2192 MP3.",
+            "operationId": "convert_convert_post",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Body_convert_convert_post"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "components": {
+        "schemas": {
+          "Body_convert_convert_post": {
+            "title": "Body_convert_convert_post",
+            "required": [
+              "file"
+            ],
+            "type": "object",
+            "properties": {
+              "file": {
+                "title": "File",
+                "type": "string",
+                "format": "binary"
+              },
+              "transpose": {
+                "title": "Transpose",
+                "type": "integer",
+                "default": 0
+              },
+              "model": {
+                "title": "Model",
+                "type": "string",
+                "default": ""
+              }
+            }
+          },
+          "HTTPValidationError": {
+            "title": "HTTPValidationError",
+            "type": "object",
+            "properties": {
+              "detail": {
+                "title": "Detail",
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "SpeechRequest": {
+            "title": "SpeechRequest",
+            "required": [
+              "input"
+            ],
+            "type": "object",
+            "properties": {
+              "model": {
+                "title": "Model",
+                "type": "string",
+                "default": "tts-1"
+              },
+              "input": {
+                "title": "Input",
+                "type": "string"
+              },
+              "voice": {
+                "title": "Voice",
+                "type": "string",
+                "default": "alloy"
+              },
+              "response_format": {
+                "title": "Response Format",
+                "type": "string",
+                "default": "mp3"
+              },
+              "speed": {
+                "title": "Speed",
+                "type": "number",
+                "default": 1.0
+              },
+              "rvc_model": {
+                "title": "Rvc Model",
+                "type": "string",
+                "default": ""
+              }
+            }
+          },
+          "ValidationError": {
+            "title": "ValidationError",
+            "required": [
+              "loc",
+              "msg",
+              "type"
+            ],
+            "type": "object",
+            "properties": {
+              "loc": {
+                "title": "Location",
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                }
+              },
+              "msg": {
+                "title": "Message",
+                "type": "string"
+              },
+              "type": {
+                "title": "Error Type",
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/v1/models",
+        "summary": "List Models",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      },
+      {
+        "method": "POST",
+        "path": "/v1/audio/speech",
+        "summary": "Synthesize",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      },
+      {
+        "method": "POST",
+        "path": "/convert",
+        "summary": "Convert",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      }
+    ],
+    "capabilities": [
+      "tts",
+      "voice_conversion"
+    ],
+    "suggested_io": {
+      "inputs": [
+        [
+          "text",
+          "string"
+        ],
+        [
+          "audio",
+          "audio"
+        ]
+      ],
+      "outputs": [
+        [
+          "audio",
+          "audio"
+        ]
+      ]
+    }
+  }
+}

@@ -2639,7 +2639,7 @@ function renderEnforcement(data) {
 }
 
 async function svcSetPriority(name, val) {
-  const priority = Math.max(1, Math.min(5, parseInt(val) || 3));
+  const priority = Math.max(1, Math.min(50, parseInt(val) || 3));
   try {
     await _fetch(`${OLLMO_API}/config/services/${encodeURIComponent(name)}`, {
       method: "PATCH",
@@ -2663,6 +2663,8 @@ async function fetchServicesCfg() {
 function renderServices(services, killOrder) {
   const el = document.getElementById("services-list");
   if (!el) return;
+  // Skip re-render if user is interacting with a priority input
+  if (el.querySelector('.svc-prio-input:focus')) return;
   if (!services || services.length === 0) {
     el.innerHTML = '<span class="dim">No services</span>';
     return;
@@ -2700,7 +2702,7 @@ function renderServices(services, killOrder) {
         data-svc="${eName}" data-lm="${_esc(limitMode)}">${_esc(limitMode)}</span>
       <span class="svc-status">${_esc(st)}</span>
       <span class="svc-vram">${vram > 0 ? vram + 'GB' : '—'}</span>
-      <input type="number" class="enf-ko-prio svc-prio-input" data-svc="${eName}" value="${priority}" min="1" max="5" title="Priority (1=protected, 5=first killed)">
+      <input type="number" class="enf-ko-prio svc-prio-input" data-svc="${eName}" value="${priority}" min="1" max="50" title="Priority (1=protected, 50=first killed)">
       <button class="svc-btn svc-start-btn" title="Start" ${running ? 'disabled' : ''}
         data-svc="${eName}">▶</button>
       <button class="svc-btn svc-stop-btn" title="Stop" ${!running ? 'disabled' : ''}

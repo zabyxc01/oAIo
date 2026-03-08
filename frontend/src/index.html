@@ -78,24 +78,21 @@
   <div class="tab-content active" id="tab-live">
     <div class="tab-grid">
 
-      <!-- Benchmark Monitor (full width) -->
-      <div class="card card-full" id="card-benchmark">
-        <div class="card-title">BENCHMARK <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live model performance</span></div>
-        <div id="bench-model-row" class="bench-model-row"><span class="dim">No model loaded</span></div>
-        <canvas id="bench-canvas" class="bench-canvas"></canvas>
-        <div id="bench-legend" class="bench-legend"></div>
-      </div>
-
-      <!-- API Monitor (full width, fixed height) -->
-      <div class="card card-full" id="card-monitor">
-        <div class="card-title">API MONITOR <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live request stream</span></div>
-        <div class="live-monitor-layout">
-          <div class="live-monitor-stats">
-            <div class="lms-row"><span class="lms-label">requests</span><span class="lms-val" id="lms-total">0</span></div>
-            <div class="lms-row"><span class="lms-label">avg latency</span><span class="lms-val" id="lms-latency">0 ms</span></div>
-            <div class="lms-row"><span class="lms-label">errors</span><span class="lms-val" id="lms-errors">0</span></div>
+      <!-- Mode Select -->
+      <div class="card" id="card-modes">
+        <div class="card-title">MODE SELECT</div>
+        <div class="mode-grid" id="mode-grid"></div>
+        <div class="mode-confirm hidden" id="mode-confirm">
+          <div class="mode-confirm-header">
+            <span class="mode-confirm-name" id="mc-title"></span>
+            <span class="mode-confirm-stat" id="mc-stat"></span>
           </div>
-          <div class="live-monitor-stream" id="live-monitor-stream"></div>
+          <div class="mode-confirm-svcs" id="mc-svcs"></div>
+          <div class="mode-confirm-actions">
+            <button class="mode-btn" id="mc-activate">ACTIVATE</button>
+            <button class="mode-btn" id="mc-cancel">CANCEL</button>
+            <span class="mode-confirm-blocked hidden" id="mc-blocked">⚠ BLOCKED</span>
+          </div>
         </div>
       </div>
 
@@ -138,24 +135,6 @@
         <div id="killlog-list"><span class="dim">No enforcer events</span></div>
       </div>
 
-      <!-- Mode Select -->
-      <div class="card" id="card-modes">
-        <div class="card-title">MODE SELECT</div>
-        <div class="mode-grid" id="mode-grid"></div>
-        <div class="mode-confirm hidden" id="mode-confirm">
-          <div class="mode-confirm-header">
-            <span class="mode-confirm-name" id="mc-title"></span>
-            <span class="mode-confirm-stat" id="mc-stat"></span>
-          </div>
-          <div class="mode-confirm-svcs" id="mc-svcs"></div>
-          <div class="mode-confirm-actions">
-            <button class="mode-btn" id="mc-activate">ACTIVATE</button>
-            <button class="mode-btn" id="mc-cancel">CANCEL</button>
-            <span class="mode-confirm-blocked hidden" id="mc-blocked">⚠ BLOCKED</span>
-          </div>
-        </div>
-      </div>
-
       <!-- RAM Tier -->
       <div class="card" id="card-ramtier">
         <div class="card-title">
@@ -172,6 +151,27 @@
       <div class="card" id="card-services">
         <div class="card-title">SERVICES <span class="dim" style="font-size:7px;font-weight:normal;letter-spacing:0">· sorted by kill order</span></div>
         <div id="services-list"><span class="dim">Waiting for data…</span></div>
+      </div>
+
+      <!-- Benchmark Monitor (full width) -->
+      <div class="card card-full" id="card-benchmark">
+        <div class="card-title">BENCHMARK <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live model performance</span></div>
+        <div id="bench-model-row" class="bench-model-row"><span class="dim">No model loaded</span></div>
+        <canvas id="bench-canvas" class="bench-canvas"></canvas>
+        <div id="bench-legend" class="bench-legend"></div>
+      </div>
+
+      <!-- API Monitor (full width, fixed height) -->
+      <div class="card card-full" id="card-monitor">
+        <div class="card-title">API MONITOR <span class="dim" style="font-size:8px;font-weight:normal;letter-spacing:0;text-transform:none">· live request stream</span></div>
+        <div class="live-monitor-layout">
+          <div class="live-monitor-stats">
+            <div class="lms-row"><span class="lms-label">requests</span><span class="lms-val" id="lms-total">0</span></div>
+            <div class="lms-row"><span class="lms-label">avg latency</span><span class="lms-val" id="lms-latency">0 ms</span></div>
+            <div class="lms-row"><span class="lms-label">errors</span><span class="lms-val" id="lms-errors">0</span></div>
+          </div>
+          <div class="live-monitor-stream" id="live-monitor-stream"></div>
+        </div>
       </div>
 
       <!-- Debugger Logs -->
@@ -1003,60 +1003,418 @@
   <div class="tab-content" id="tab-help">
     <div class="tab-grid">
 
-      <!-- Quick Start -->
+      <!-- ── Quick Start ── -->
       <div class="card card-full">
         <div class="card-title">QUICK START</div>
         <div class="settings-group" style="gap:6px">
-          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">1.</span><span>Pick a <b>mode</b> in the LIVE tab &mdash; oLLMo (LLM), oAudio (voice), or comfyui-flex (image gen).</span></div>
-          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">2.</span><span>Services auto-start. Watch the <b>telemetry strip</b> for VRAM/RAM usage.</span></div>
-          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">3.</span><span>Use the service UIs &mdash; <b>Open-WebUI</b> (:3000) for chat, <b>ComfyUI</b> (:8188) for images.</span></div>
-          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">4.</span><span>Monitor everything in the <b>LIVE</b> tab &mdash; benchmark, API traffic, enforcement, kill log.</span></div>
-          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">5.</span><span>Customize nodes, routing, and resources in <b>CONFIG</b>.</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">1.</span><span>Pick a <b>mode</b> in the LIVE tab &mdash; oLLMo (LLM + voice), oAudio (voice pipeline), or comfyui-flex (image gen).</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">2.</span><span>Services auto-start. Watch the <b>telemetry strip</b> at the top for VRAM / RAM / GPU usage.</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">3.</span><span>Use service UIs directly &mdash; <b>Open-WebUI</b> (:3000) for chat, <b>ComfyUI</b> (:8188) for images, etc.</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">4.</span><span>Monitor everything in <b>LIVE</b> &mdash; benchmark, enforcement, kill log, API traffic.</span></div>
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="color:var(--accent);font-weight:bold;min-width:18px">5.</span><span>Wire services in <b>CONFIG</b>, build pipelines in <b>M&sup3;</b>, link machines in <b>FLEET</b>.</span></div>
           <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
             <span class="dim" style="font-size:10px">If something goes wrong, hit the red <b style="color:var(--red)">KILL ALL</b> button in the top bar to stop all services and clear modes instantly.</span>
           </div>
         </div>
       </div>
 
-      <!-- Tabs -->
-      <div class="card">
-        <div class="card-title">TABS</div>
-        <div class="settings-group" style="gap:4px;font-size:11px">
-          <div><b style="color:var(--accent)">LIVE</b> <span class="dim">&mdash;</span> Real-time dashboard: modes, services, enforcement, benchmark, API monitor.</div>
-          <div><b style="color:var(--accent)">CONFIG</b> <span class="dim">&mdash;</span> LiteGraph node editor: wire services, manage modes, configure resources.</div>
-          <div><b style="color:var(--purple)">M&sup3;</b> <span class="dim">&mdash;</span> MultiModelMode: chain models into pipelines, fine-tune with LoRA/QLoRA, manage adapters.</div>
-          <div><b style="color:var(--accent)">ADVANCED</b> <span class="dim">&mdash;</span> Disk map, port map, volume map, connection map, templates.</div>
-          <div><b style="color:var(--accent)">API</b> <span class="dim">&mdash;</span> How-it-works guide, live topology, OpenAPI endpoints, request monitor.</div>
-          <div><b style="color:var(--accent)">SETTINGS</b> <span class="dim">&mdash;</span> Theme, layout, background, behavior, workflow saves, data export.</div>
-          <div><b style="color:var(--accent)">FLEET</b> <span class="dim">&mdash;</span> Multi-node orchestration: discover, monitor, and dispatch to remote nodes.</div>
-          <div><b style="color:var(--accent)">HELP</b> <span class="dim">&mdash;</span> You are here.</div>
+      <!-- ── System Architecture ── -->
+      <div class="card card-full">
+        <div class="card-title">SYSTEM ARCHITECTURE</div>
+        <div class="settings-group" style="gap:8px;font-size:11px">
+          <div class="dim">oAIo is a local AI workstation orchestrator. It manages Docker containers running AI services (LLMs, TTS, voice conversion, image generation) on a single GPU, enforcing VRAM budgets so services don&rsquo;t OOM each other.</div>
+          <pre style="font-size:10px;color:var(--text-dim);line-height:1.5;margin:4px 0;overflow-x:auto;white-space:pre">
+  Browser (:9000)
+     |
+     +-- oAIo API (FastAPI, port 9000) ----+-- oAudio API (port 8002)
+     |       |                              |       |
+     |   +---+---+---+---+---+              |   Kokoro-TTS --&gt; RVC Proxy
+     |   |   |   |   |   |   |              |   F5-TTS, StyleTTS2
+     |  Docker SDK  sysfs  config/           |
+     |   |                                   |
+     +---+--- oaio-net (bridge) ------------+
+         |       |        |        |
+      Ollama  Open-WebUI  ComfyUI  ...
+      (:11434) (:3000)    (:8188)
+
+  /mnt/oaio/*  &lt;-- 17 symlinks --&gt;  physical disks (NVMe/SATA/RAM)</pre>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <span class="dim">The oAIo container runs inside Docker alongside all services on a shared <b>oaio-net</b> bridge network. It has access to the Docker socket (to manage containers), GPU sysfs (to read VRAM), and all <b>/mnt/oaio/*</b> symlinks (to route storage). The frontend is served as static files from the same port 9000.</span>
+          </div>
         </div>
       </div>
 
-      <!-- Key Concepts -->
+      <!-- ── Tab: LIVE ── -->
       <div class="card">
-        <div class="card-title">KEY CONCEPTS</div>
-        <div class="settings-group" style="gap:8px;font-size:11px">
+        <div class="card-title"><span style="color:var(--accent)">LIVE</span> TAB</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
           <div>
-            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">MODES</div>
-            <span class="dim">Groups of services with VRAM budgets. Only one mode per GPU &mdash; activating a new mode displaces the old one. Three built-in: oLLMo (11 GB), oAudio (5 GB), comfyui-flex (18 GB).</span>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">MODE SELECT</div>
+            <span class="dim">Three built-in modes (oLLMo, oAudio, comfyui-flex) appear as clickable pills. Activating one starts its services and stops any displaced services from the previous mode. Only one mode active at a time &mdash; they share a single GPU.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SERVICES GRID</div>
+            <span class="dim">Shows all registered services with live status (running / stopped / error). Click a service row to start or stop it. Color-coded by group: <span style="color:var(--grp-llm)">blue</span> = oLLM, <span style="color:var(--grp-audio)">amber</span> = oAudio, <span style="color:var(--grp-render)">green</span> = Render, <span style="color:var(--grp-control)">gray</span> = Control.</span>
           </div>
           <div style="border-top:1px solid var(--border);padding-top:6px">
             <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">ENFORCEMENT</div>
-            <span class="dim">Automatic OOM protection. Warns at 85% VRAM, hard-kills lowest-priority services at 95%. Configurable thresholds and per-service priority (1&ndash;5). Toggle on/off in LIVE.</span>
+            <span class="dim">Master toggle for automatic OOM protection. Shows warn threshold (default 85%), hard threshold (default 95%), and VRAM ceiling override. When VRAM exceeds the hard threshold, the enforcer kills the lowest-priority service. Priority 1&ndash;50, where 1 = last to be killed.</span>
           </div>
           <div style="border-top:1px solid var(--border);padding-top:6px">
-            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SYMLINKS</div>
-            <span class="dim">The /mnt/oaio/ abstraction layer &mdash; 16 symlinks that decouple services from physical disk paths. Enables storage tiering (NVMe / SATA / RAM) without reconfiguring containers.</span>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">BENCHMARK</div>
+            <span class="dim">Run a quick inference test against Ollama to measure tokens/sec. Results display in a card with model name, tokens generated, and throughput. Requires Ollama to be running with at least one model loaded.</span>
           </div>
           <div style="border-top:1px solid var(--border);padding-top:6px">
-            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SERVICES</div>
-            <span class="dim">Docker containers managed by oAIo. Each has a group (oLLM, oAudio, Render, Control), priority, memory mode, and kill limit (soft warning vs hard cutoff).</span>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">KILL LOG</div>
+            <span class="dim">Rolling log of enforcer actions &mdash; which services were warned or killed, timestamps, VRAM levels at time of action. Persists across mode switches.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">TELEMETRY STRIP</div>
+            <span class="dim">Top bar showing live gauges: VRAM used/total, RAM used/total, GPU busy %, active mode name. Toggle visibility with the TELEMETRY pill. Updates every 5 seconds.</span>
           </div>
         </div>
       </div>
 
-      <!-- Ports & URLs -->
+      <!-- ── Tab: CONFIG ── -->
+      <div class="card">
+        <div class="card-title"><span style="color:var(--accent)">CONFIG</span> TAB</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">NODE CANVAS</div>
+            <span class="dim">A full LiteGraph.js node editor. Each registered service appears as a draggable node with I/O ports. Nodes are color-coded by group (bg tint) and status (title bar: <span style="color:var(--green)">green</span> = running, <span style="color:var(--red)">red</span> = stopped). Click a node&rsquo;s title bar to start/stop the service.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">CANVAS CONTROLS</div>
+            <span class="dim">Drag to pan, scroll to zoom. Right-click for context menu. Nodes can be wired together by dragging from an output port to an input port. The graph state persists in the browser.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">MODE GROUP BOXES</div>
+            <span class="dim">Each mode draws a colored backdrop behind its service nodes &mdash; <span style="color:var(--mode-ollmo)">magenta</span> for oLLMo, <span style="color:var(--mode-oaudio)">cyan</span> for oAudio, <span style="color:var(--mode-comfyui)">yellow</span> for comfyui-flex. Helps visualize which nodes belong to which mode.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">BELOW-CANVAS PANELS</div>
+            <span class="dim">Add Service form, Pull Model (downloads Ollama models), SCAN DOCKER / SCAN API / AUTO WIRE buttons for integrating new services. Connection map shows how services route to each other.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">ADD SERVICE</div>
+            <span class="dim">Register a new Docker container as an oAIo service. Provide: name, container name, port, group, VRAM/RAM estimates, priority, memory mode, and description. The container must already exist on oaio-net.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tab: M³ ── -->
+      <div class="card">
+        <div class="card-title"><span style="color:var(--purple)">M&sup3;</span> TAB &mdash; MULTI-MODEL MODE</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--purple);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">WHAT IS M&sup3;?</div>
+            <span class="dim">M&sup3; chains multiple AI models into inference pipelines and manages training jobs. It is separate from Modes (which control VRAM budgets) and Fleet (which orchestrates remote machines). M&sup3; operates within a single machine.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--purple);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">PIPELINES</div>
+            <span class="dim">A pipeline is a sequence of steps: <b>Input &rarr; Model A &rarr; Transform &rarr; Model B &rarr; Output</b>. Each step can be an Ollama model (with temperature, system prompt) or a transform (template substitution, JSON extraction, summarization). Create pipelines in the M&sup3; tab, wire them visually in CONFIG using M&sup3; nodes.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--purple);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">PIPELINE RUNNER</div>
+            <span class="dim">Type input text and run it through a saved pipeline. Each step&rsquo;s output feeds into the next via <code style="color:var(--purple)">{{input}}</code> template substitution. Results display step-by-step with timing. Useful for multi-model reasoning chains.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--purple);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">TRAINING JOBS</div>
+            <span class="dim">Submit fine-tuning jobs with method (QLoRA, LoRA, Full), base model, dataset path, epochs, learning rate, batch size, and rank. Jobs are tracked with status and progress. Training currently requires a separate training container (Ollama is inference-only).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--purple);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">ADAPTERS</div>
+            <span class="dim">Lists completed LoRA/QLoRA adapters from training jobs. Future: convert adapters to GGUF for direct Ollama import.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--purple);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">M&sup3; NODE TYPES (CONFIG CANVAS)</div>
+            <span class="dim">Six LiteGraph nodes: <b>m3-model</b> (Ollama model selector), <b>m3-input</b> (pipeline entry), <b>m3-output</b> (result display), <b>m3-transform</b> (template/extract/summarize/append), <b>m3-router</b> (conditional branching), <b>m3-training</b> (training job with progress bar).</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tab: FLEET ── -->
+      <div class="card">
+        <div class="card-title"><span style="color:var(--accent)">FLEET</span> TAB &mdash; MULTI-NODE</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">WHAT IS FLEET?</div>
+            <span class="dim">Fleet links multiple oAIo instances across machines (desktop, car SBC, backpack node, etc.) into a unified cluster. Each machine runs its own oAIo stack and registers with a coordinator. Fleet manages discovery, health monitoring, and job dispatch between nodes.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">NODE REGISTRATION</div>
+            <span class="dim">Register a remote oAIo instance by URL (e.g., <code>http://100.99.194.124:9000</code> over Tailscale). Fleet pings the remote <code>/health</code> endpoint to verify connectivity. LAN and Tailscale IPs are allowed; only link-local (169.254.x.x) is blocked for safety.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">NODE CARDS</div>
+            <span class="dim">Each registered node shows: name, URL, status (online/offline/error), last heartbeat, capabilities, and hardware summary. The local machine can register itself too.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">JOB DISPATCH</div>
+            <span class="dim">Send jobs to remote nodes via the dispatch panel. Select a target node, provide a payload, and Fleet forwards the request. Useful for offloading inference or rendering to a more powerful machine.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">FLEET NODES (CONFIG CANVAS)</div>
+            <span class="dim">Two LiteGraph node types: <b>fleet-node</b> (represents a remote machine with status dot) and <b>fleet-dispatch</b> (sends jobs to a selected node). Wire fleet nodes to service nodes to visualize cross-machine routing.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tab: ADVANCED ── -->
+      <div class="card">
+        <div class="card-title"><span style="color:var(--accent)">ADVANCED</span> TAB</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">DISK MAP</div>
+            <span class="dim">Shows all physical storage devices with mount points, capacity, used space, and filesystem. Color-coded by tier: <span style="color:var(--tier-nvme)">NVMe</span>, <span style="color:var(--tier-sata)">SATA</span>, <span style="color:var(--tier-ram)">RAM (tmpfs)</span>.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">VOLUME MAP</div>
+            <span class="dim">All 17 symlinks under /mnt/oaio/ with their current targets and tiers. Click to change target (repoint a symlink to a different physical path). Supports NVMe, SATA, and RAM (tmpfs via /dev/shm) tiers.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">PORT MAP</div>
+            <span class="dim">All registered services with their exposed ports, container names, and network bindings.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">CONNECTION MAP</div>
+            <span class="dim">Visualizes how services connect to each other internally (e.g., Open-WebUI &rarr; Ollama, Open-WebUI &rarr; RVC Proxy &rarr; Kokoro-TTS).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">TEMPLATES</div>
+            <span class="dim">Save and load named configuration templates. A template snapshots the current services.json + modes.json + paths.json. Useful for switching between different workstation profiles.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tab: API ── -->
+      <div class="card">
+        <div class="card-title"><span style="color:var(--accent)">API</span> TAB</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">HOW IT WORKS</div>
+            <span class="dim">Interactive guide showing the oAIo architecture, request flow, and how the frontend communicates with the backend API.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">LIVE TOPOLOGY</div>
+            <span class="dim">Auto-refreshing (5s) view of all running services, their connections, and data flow. Shows which services are active and how they route requests.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">OPENAPI ENDPOINTS</div>
+            <span class="dim">Full list of every oAIo API endpoint organized by tag (11 tag groups). Each shows method, path, and description. The API is a standard FastAPI app with auto-generated OpenAPI docs at /docs.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">REQUEST MONITOR</div>
+            <span class="dim">Live stream of all API requests hitting the oAIo backend. Shows method, path, status code, duration, and timestamp. Powered by ASGI middleware logging to a rolling 500-entry deque, pushed via WebSocket. Available at <code>/api/monitor/ws</code> or <code>/api/monitor/stream</code>.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tab: SETTINGS ── -->
+      <div class="card">
+        <div class="card-title"><span style="color:var(--accent)">SETTINGS</span> TAB</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">THEME</div>
+            <span class="dim">Choose accent color and toggle between dark variants. All colors are CSS custom properties, so the entire UI recolors instantly.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">LAYOUT</div>
+            <span class="dim">Grid density, card sizing, font size. The fluid grid automatically adapts to any screen width.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">BACKGROUND</div>
+            <span class="dim">Set a custom background image for the app. Supports URL or local path.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">WORKFLOW SAVES</div>
+            <span class="dim">Save and restore complete workspace states &mdash; services, modes, paths, settings, node graph positions. Each save is timestamped. Stored to /mnt/oaio/workflows/.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">DATA EXPORT / IMPORT</div>
+            <span class="dim">Export all configuration as a JSON bundle or import from a previous export. Useful for backup, migration, or sharing setups between machines.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Modes ── -->
+      <div class="card">
+        <div class="card-title">MODES</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div class="dim">Only one mode can be active at a time. Activating a new mode gracefully stops services from the old mode that aren&rsquo;t in the new one, then starts the new services. Each mode has a VRAM budget &mdash; services that don&rsquo;t fit won&rsquo;t start.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--mode-ollmo)"></span><b>oLLMo</b> <span class="dim">&mdash; 11 GB VRAM</span></div>
+            <span class="dim">LLM pipeline with voice. Ollama (inference) + Open-WebUI (chat + RAG) + Kokoro-TTS (synthesis) + RVC (voice conversion). Talk to the AI, hear it respond in a cloned voice.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--mode-oaudio)"></span><b>oAudio</b> <span class="dim">&mdash; 5 GB VRAM</span></div>
+            <span class="dim">Full audio pipeline. Kokoro-TTS (synthesis) + RVC (voice conversion) + F5-TTS (voice cloning). Focused on voice work &mdash; training voices, cloning, converting.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--mode-comfyui)"></span><b>comfyui-flex</b> <span class="dim">&mdash; 18 GB VRAM</span></div>
+            <span class="dim">Render pipeline. ComfyUI gets nearly the full GPU. For image generation (Flux.1-dev), video, and 3D workflows. Auto-names from the active workflow.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Services ── -->
+      <div class="card">
+        <div class="card-title">SERVICES</div>
+        <table style="width:100%;font-size:10px;border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:0.1em">
+              <th style="text-align:left;padding:4px 6px 4px 0">Service</th>
+              <th style="text-align:left;padding:4px 6px">Port</th>
+              <th style="text-align:left;padding:4px 6px">Group</th>
+              <th style="text-align:left;padding:4px 6px">VRAM</th>
+              <th style="text-align:left;padding:4px 6px">Pri</th>
+              <th style="text-align:left;padding:4px 6px">What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:3px 6px 3px 0;font-weight:bold">ollama</td>
+              <td style="padding:3px 6px;color:var(--accent)">11434</td>
+              <td style="padding:3px 6px;color:var(--grp-llm)">oLLM</td>
+              <td style="padding:3px 6px">7.5 GB</td>
+              <td style="padding:3px 6px">1</td>
+              <td style="padding:3px 6px" class="dim">LLM inference via ROCm. Hosts Dolphin3, Mistral, Qwen2.5, Gemma3, etc. OpenAI-compatible API at /v1/*.</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:3px 6px 3px 0;font-weight:bold">open-webui</td>
+              <td style="padding:3px 6px;color:var(--accent)">3000</td>
+              <td style="padding:3px 6px;color:var(--grp-llm)">oLLM</td>
+              <td style="padding:3px 6px">0 GB</td>
+              <td style="padding:3px 6px">4</td>
+              <td style="padding:3px 6px" class="dim">Chat UI with RAG (nomic-embed-text). Routes TTS through RVC Proxy for voice output.</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:3px 6px 3px 0;font-weight:bold">kokoro-tts</td>
+              <td style="padding:3px 6px;color:var(--accent)">8000</td>
+              <td style="padding:3px 6px;color:var(--grp-audio)">oAudio</td>
+              <td style="padding:3px 6px">0 GB</td>
+              <td style="padding:3px 6px">2</td>
+              <td style="padding:3px 6px" class="dim">TTS synthesis (ONNX, CPU). 6 voice presets: alloy, nova, shimmer, echo, fable, onyx. OpenAI-compatible /v1/audio/speech.</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:3px 6px 3px 0;font-weight:bold">rvc</td>
+              <td style="padding:3px 6px;color:var(--accent)">8001</td>
+              <td style="padding:3px 6px;color:var(--grp-audio)">oAudio</td>
+              <td style="padding:3px 6px">3 GB</td>
+              <td style="padding:3px 6px">2</td>
+              <td style="padding:3px 6px" class="dim">Voice conversion proxy. Takes raw TTS audio and converts it through RVC voice models (GOTHMOMMY, TADC_Bubble, egirltea). Also has Gradio training UI at :7865.</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:3px 6px 3px 0;font-weight:bold">f5-tts</td>
+              <td style="padding:3px 6px;color:var(--accent)">7860</td>
+              <td style="padding:3px 6px;color:var(--grp-audio)">oAudio</td>
+              <td style="padding:3px 6px">2 GB</td>
+              <td style="padding:3px 6px">5</td>
+              <td style="padding:3px 6px" class="dim">Voice cloning from reference audio. Provide a sample and text to generate speech in that voice. Gradio UI.</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:3px 6px 3px 0;font-weight:bold">styletts2</td>
+              <td style="padding:3px 6px;color:var(--accent)">7870</td>
+              <td style="padding:3px 6px;color:var(--grp-audio)">oAudio</td>
+              <td style="padding:3px 6px">1.5 GB</td>
+              <td style="padding:3px 6px">4</td>
+              <td style="padding:3px 6px" class="dim">Multi-speaker TTS with 8 seed presets. Style transfer from reference audio. LibriTTS model. Gradio UI.</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 6px 3px 0;font-weight:bold">comfyui</td>
+              <td style="padding:3px 6px;color:var(--accent)">8188</td>
+              <td style="padding:3px 6px;color:var(--grp-render)">Render</td>
+              <td style="padding:3px 6px">12 GB</td>
+              <td style="padding:3px 6px">3</td>
+              <td style="padding:3px 6px" class="dim">Node-based image generation. Flux.1-dev, video, 3D workflows. Full ComfyUI with custom nodes. Uses native install models via symlinks.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:6px">
+          <span class="dim" style="font-size:10px"><b>Priority</b>: 1 = highest (last to be killed). Soft-kill (1&ndash;2) = warning only. Hard-kill (3&ndash;5) = enforcer will stop the container.<br><b>Memory mode</b>: &ldquo;vram&rdquo; = uses GPU memory. &ldquo;ram&rdquo; = uses system RAM only (e.g., Kokoro ONNX).</span>
+        </div>
+      </div>
+
+      <!-- ── Resource Enforcement ── -->
+      <div class="card">
+        <div class="card-title">RESOURCE ENFORCEMENT</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div class="dim">The enforcer is a background loop (polls every 5 seconds) that reads GPU VRAM from sysfs and takes action when usage exceeds thresholds.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--yellow);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">WARN THRESHOLD (85%)</div>
+            <span class="dim">When VRAM usage crosses 85%, the enforcer logs a warning and adds an entry to the kill log. No services are stopped yet. This is an early alert to reduce load.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--red);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">HARD THRESHOLD (95%)</div>
+            <span class="dim">When VRAM usage crosses 95%, the enforcer stops the lowest-priority <b>hard-kill</b> service (priority 3&ndash;5). Soft-kill services (priority 1&ndash;2) are never auto-stopped &mdash; they only get warnings. The enforcer kills one service per cycle, re-checks, and repeats if still over threshold.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">VRAM CEILING</div>
+            <span class="dim">Override the real VRAM total with a lower virtual limit. Useful for testing if a mode fits on smaller hardware (e.g., set ceiling to 8 GB to simulate an RX 580).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">MASTER TOGGLE</div>
+            <span class="dim">Disable enforcement entirely if you want manual control. When disabled, the enforcer loop still runs but takes no action &mdash; it only logs.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Symlink Bus ── -->
+      <div class="card">
+        <div class="card-title">SYMLINK BUS &mdash; /mnt/oaio/</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div class="dim">All Docker containers mount volumes through <code>/mnt/oaio/*</code> symlinks, never through direct physical paths. This creates a single abstraction layer between services and storage.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">HOW IT WORKS</div>
+            <span class="dim"><code>/mnt/oaio/ollama</code> &rarr; <code>/mnt/windows-sata/ollama-models</code> (SATA). To move Ollama models to NVMe, just repoint the symlink: <code>/mnt/oaio/ollama</code> &rarr; <code>/mnt/storage/ollama-models</code>. No container restart needed &mdash; the container still sees <code>/mnt/oaio/ollama</code>.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">STORAGE TIERS</div>
+            <span class="dim"><span style="color:var(--tier-nvme)">NVMe</span> &mdash; fastest, for active models and outputs. <span style="color:var(--tier-sata)">SATA</span> &mdash; bulk storage for large model collections. <span style="color:var(--tier-ram)">RAM (tmpfs)</span> &mdash; /dev/shm backed, volatile but fastest possible I/O for scratch data.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">17 SYMLINKS</div>
+            <span class="dim">ollama, models, lora, custom-nodes, comfyui-user, outputs, inputs, audio, kokoro-voices, hf-cache, ref-audio, rvc-ref, rvc-weights, rvc-indices, swap, training, workflows. Manage them in ADVANCED &gt; Volume Map or via API (<code>GET /config/paths</code>, <code>POST /config/paths/{name}/repoint</code>).</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Connect Any Service ── -->
+      <div class="card card-full">
+        <div class="card-title">CONNECT ANY SERVICE &mdash; 3-STEP WORKFLOW</div>
+        <div class="settings-group" style="gap:8px;font-size:11px">
+          <div class="dim">oAIo can integrate any Docker container running on oaio-net. The three-step workflow discovers, probes, and wires new services automatically.</div>
+
+          <div style="border-top:1px solid var(--border);padding-top:8px">
+            <div style="display:flex;gap:10px;align-items:baseline"><span style="background:var(--accent);color:#000;font-weight:bold;padding:1px 6px;border-radius:3px;font-size:10px">1</span><b>SCAN DOCKER</b></div>
+            <div class="dim" style="margin-top:4px;padding-left:28px">Scans the Docker daemon for containers on <b>oaio-net</b> that aren&rsquo;t already registered as oAIo services. Shows container name, image, status, and exposed ports. If you install new AI software in Docker and connect it to oaio-net, it appears here.</div>
+          </div>
+
+          <div style="border-top:1px solid var(--border);padding-top:8px">
+            <div style="display:flex;gap:10px;align-items:baseline"><span style="background:var(--accent);color:#000;font-weight:bold;padding:1px 6px;border-radius:3px;font-size:10px">2</span><b>SCAN API</b></div>
+            <div class="dim" style="margin-top:4px;padding-left:28px">Probes a registered service&rsquo;s HTTP endpoints to discover its API capabilities. The scanner checks for:
+              <div style="margin-top:4px">
+                <span style="color:var(--cyan)">OpenAPI</span> &mdash; <code>/openapi.json</code>, <code>/docs</code> (FastAPI/Swagger).<br>
+                <span style="color:var(--green)">OpenAI-compat</span> &mdash; <code>/v1/models</code>, <code>/v1/chat/completions</code>, <code>/v1/audio/speech</code>, <code>/v1/embeddings</code>, <code>/v1/images/generations</code>.<br>
+                <span style="color:var(--yellow)">Gradio</span> &mdash; <code>/info</code> (v4), <code>/gradio_api/info</code> (v6) for Gradio-based UIs (RVC, F5-TTS, StyleTTS2).<br>
+                <span style="color:var(--text-dim)">Generic</span> &mdash; common paths like <code>/health</code>, <code>/api/generate</code>, <code>/transcribe</code>.
+              </div>
+              Results show endpoint count, detected capabilities (chat, tts, embeddings, image_gen, etc.), and the full endpoint list with methods and response codes.
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--border);padding-top:8px">
+            <div style="display:flex;gap:10px;align-items:baseline"><span style="background:var(--accent);color:#000;font-weight:bold;padding:1px 6px;border-radius:3px;font-size:10px">3</span><b>AUTO WIRE</b></div>
+            <div class="dim" style="margin-top:4px;padding-left:28px">Generates LiteGraph I/O port definitions from scan results. Maps capabilities to typed ports (chat &rarr; string/string, tts &rarr; string/audio, image_gen &rarr; string/image, etc.). Shows a preview of the generated ports with APPLY / REVERT buttons. Applying updates the service&rsquo;s node in the CONFIG canvas with the correct I/O ports.</div>
+          </div>
+
+          <div style="border-top:1px solid var(--border);padding-top:8px">
+            <span class="dim" style="font-size:10px"><b>Tip:</b> You can also use scan results as context for manual wiring. Export the scan JSON and use it with any AI assistant to understand what a service can do and how to connect it.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Ports & URLs ── -->
       <div class="card">
         <div class="card-title">PORTS &amp; URLS</div>
         <table style="width:100%;font-size:11px;border-collapse:collapse">
@@ -1071,73 +1429,209 @@
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">9000</td>
               <td style="padding:4px 8px">oAIo</td>
-              <td style="padding:4px 8px" class="dim">Main API + frontend</td>
+              <td style="padding:4px 8px" class="dim">Main API + frontend (this UI)</td>
             </tr>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8002</td>
               <td style="padding:4px 8px">oAudio</td>
-              <td style="padding:4px 8px" class="dim">Voice pipeline API</td>
+              <td style="padding:4px 8px" class="dim">Voice pipeline &mdash; /speak, /convert, /clone</td>
             </tr>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">3000</td>
               <td style="padding:4px 8px">Open-WebUI</td>
-              <td style="padding:4px 8px" class="dim">Chat interface + RAG</td>
+              <td style="padding:4px 8px" class="dim">Chat interface + RAG (nomic-embed-text)</td>
             </tr>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">11434</td>
               <td style="padding:4px 8px">Ollama</td>
-              <td style="padding:4px 8px" class="dim">LLM inference API</td>
+              <td style="padding:4px 8px" class="dim">LLM inference &mdash; /v1/chat/completions, /api/generate</td>
             </tr>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8188</td>
               <td style="padding:4px 8px">ComfyUI</td>
-              <td style="padding:4px 8px" class="dim">Image generation</td>
+              <td style="padding:4px 8px" class="dim">Image generation node editor</td>
             </tr>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8000</td>
               <td style="padding:4px 8px">Kokoro TTS</td>
-              <td style="padding:4px 8px" class="dim">Text-to-speech synthesis</td>
+              <td style="padding:4px 8px" class="dim">TTS synthesis &mdash; /v1/audio/speech</td>
             </tr>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">8001</td>
               <td style="padding:4px 8px">RVC Proxy</td>
-              <td style="padding:4px 8px" class="dim">Voice conversion</td>
+              <td style="padding:4px 8px" class="dim">Voice conversion &mdash; /v1/audio/speech (passthrough)</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">7865</td>
+              <td style="padding:4px 8px">RVC Gradio</td>
+              <td style="padding:4px 8px" class="dim">RVC training UI (preprocess, extract, train)</td>
             </tr>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">7860</td>
               <td style="padding:4px 8px">F5-TTS</td>
-              <td style="padding:4px 8px" class="dim">Voice cloning</td>
+              <td style="padding:4px 8px" class="dim">Voice cloning from reference audio</td>
             </tr>
             <tr>
               <td style="padding:4px 8px 4px 0;color:var(--accent);font-weight:bold">7870</td>
               <td style="padding:4px 8px">StyleTTS2</td>
-              <td style="padding:4px 8px" class="dim">Voice prototyping</td>
+              <td style="padding:4px 8px" class="dim">Multi-speaker TTS with style transfer</td>
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <!-- Tips -->
-      <div class="card">
-        <div class="card-title">TIPS</div>
-        <div class="settings-group" style="gap:6px;font-size:11px">
-          <div><span style="color:var(--red);font-weight:bold">KILL ALL</span> <span class="dim">&mdash;</span> Stops every running service and clears all active modes. Use when VRAM is stuck or a service is unresponsive.</div>
-          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Mode switching</span> <span class="dim">&mdash;</span> Activating a new mode gracefully stops displaced services before starting new ones. No need to manually kill first.</div>
-          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Node editor</span> <span class="dim">&mdash;</span> In CONFIG, drag to pan, scroll to zoom. Click a node to configure its resources. Double-click to open its service page.</div>
-          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">VRAM ceiling</span> <span class="dim">&mdash;</span> Set a virtual VRAM limit in the Enforcement card to test mode fits without real hardware constraints.</div>
-          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Telemetry strip</span> <span class="dim">&mdash;</span> Toggle with the TELEMETRY pill in the top bar. Shows live VRAM, RAM, GPU utilization, and active modes.</div>
-          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Workflows</span> <span class="dim">&mdash;</span> Save complete workspace state (modes, layout, routing, settings) in SETTINGS &gt; Workflow Saves.</div>
+        <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:6px">
+          <span class="dim" style="font-size:10px">Default bind: <code>127.0.0.1</code> (localhost only). Set <code>OAIO_BIND=0.0.0.0</code> in .env to expose on all interfaces. Use Tailscale for secure remote access.</span>
         </div>
       </div>
 
-      <!-- Links -->
+      <!-- ── Security ── -->
       <div class="card">
-        <div class="card-title">LINKS</div>
+        <div class="card-title">SECURITY</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">API TOKEN AUTH</div>
+            <span class="dim">Set <code>OAIO_API_TOKEN</code> environment variable to require a Bearer token on all mutating API requests (POST/PUT/DELETE/PATCH). GET requests and the frontend are not gated. Pass the token as <code>Authorization: Bearer &lt;token&gt;</code>.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SECURITY HEADERS</div>
+            <span class="dim">Every response includes: X-Content-Type-Options (nosniff), X-Frame-Options (DENY), Referrer-Policy (no-referrer), Content-Security-Policy (script-src &lsquo;self&rsquo; &lsquo;unsafe-inline&rsquo; &lsquo;unsafe-eval&rsquo;, no external scripts).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">INPUT SANITIZATION</div>
+            <span class="dim">HTML escaping on all user data rendered in innerHTML (~40 call sites). Path traversal protection on template load/save and file operations. Container name validation via regex (alphanumeric + hyphens only). Fleet SSRF protection blocks link-local IPs (169.254.0.0/16).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">NETWORK BINDING</div>
+            <span class="dim">All ports default to <code>127.0.0.1</code> (localhost). For remote access, use Tailscale (WireGuard VPN) rather than exposing ports publicly. The oAIo container itself has Docker socket access (necessary for container management).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">CONCURRENCY SAFETY</div>
+            <span class="dim">asyncio.Lock() protects 8 config-mutating endpoints against race conditions. Docker SDK calls run via run_in_executor() to avoid blocking the event loop. UUID-based filenames for concurrent /speak requests.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Voice Pipeline ── -->
+      <div class="card">
+        <div class="card-title">VOICE PIPELINE (oAudio)</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div class="dim">The oAudio API at port 8002 provides three endpoints for voice work:</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--grp-audio);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">POST /speak</div>
+            <span class="dim">Text &rarr; speech. Sends text to Kokoro-TTS for synthesis, then routes the raw audio through RVC for voice conversion. Returns the final audio file. Voice presets: alloy/nova = af_heart, shimmer/echo = af_sky, fable = bf_emma, onyx = am_adam.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--grp-audio);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">POST /convert</div>
+            <span class="dim">Audio &rarr; voice conversion. Upload an audio file, it gets converted through an RVC voice model. Use for converting any audio to sound like a target voice.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--grp-audio);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">POST /clone</div>
+            <span class="dim">Reference audio + text &rarr; cloned speech. Sends to F5-TTS which generates speech matching the reference voice. For zero-shot voice cloning from a short audio sample.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <span class="dim" style="font-size:10px"><b>Adding RVC voices:</b> Drop .pth files into <code>/mnt/oaio/rvc-weights/</code>. They appear automatically in the RVC model list. Index files (.index) go in <code>/mnt/oaio/rvc-indices/</code>.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── API Endpoints ── -->
+      <div class="card">
+        <div class="card-title">KEY API ENDPOINTS</div>
+        <div class="settings-group" style="gap:4px;font-size:10px">
+          <div style="font-weight:bold;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:2px">Services</div>
+          <div><code style="color:var(--green)">GET</code> <code>/config/services</code> <span class="dim">&mdash; all service definitions</span></div>
+          <div><code style="color:var(--green)">GET</code> <code>/services/{name}/status</code> <span class="dim">&mdash; container status</span></div>
+          <div><code style="color:var(--yellow)">POST</code> <code>/services/{name}/start</code> <span class="dim">&mdash; start container</span></div>
+          <div><code style="color:var(--yellow)">POST</code> <code>/services/{name}/stop</code> <span class="dim">&mdash; stop container</span></div>
+          <div><code style="color:var(--yellow)">POST</code> <code>/services/{name}/scan</code> <span class="dim">&mdash; probe API endpoints</span></div>
+          <div><code style="color:var(--yellow)">POST</code> <code>/services/{name}/autowire</code> <span class="dim">&mdash; generate I/O ports</span></div>
+
+          <div style="font-weight:bold;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;margin-top:8px;margin-bottom:2px">Modes</div>
+          <div><code style="color:var(--green)">GET</code> <code>/config/modes</code> <span class="dim">&mdash; all mode definitions</span></div>
+          <div><code style="color:var(--yellow)">POST</code> <code>/modes/{id}/activate</code> <span class="dim">&mdash; activate mode</span></div>
+          <div><code style="color:var(--yellow)">POST</code> <code>/modes/{id}/deactivate</code> <span class="dim">&mdash; deactivate mode</span></div>
+
+          <div style="font-weight:bold;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;margin-top:8px;margin-bottom:2px">Resources</div>
+          <div><code style="color:var(--green)">GET</code> <code>/resources</code> <span class="dim">&mdash; VRAM/RAM/GPU live readings</span></div>
+          <div><code style="color:var(--green)">GET</code> <code>/config/paths</code> <span class="dim">&mdash; all symlinks + tiers</span></div>
+          <div><code style="color:var(--yellow)">POST</code> <code>/config/paths/{name}/repoint</code> <span class="dim">&mdash; change symlink target</span></div>
+
+          <div style="font-weight:bold;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;margin-top:8px;margin-bottom:2px">Emergency</div>
+          <div><code style="color:var(--red)">POST</code> <code>/emergency/kill</code> <span class="dim">&mdash; stop all services, clear modes</span></div>
+
+          <div style="font-weight:bold;color:var(--text-dim);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;margin-top:8px;margin-bottom:2px">Monitor</div>
+          <div><code style="color:var(--green)">GET</code> <code>/api/monitor/stream</code> <span class="dim">&mdash; SSE request stream</span></div>
+          <div><code style="color:var(--cyan)">WS</code> <code>/api/monitor/ws</code> <span class="dim">&mdash; WebSocket request stream</span></div>
+          <div><code style="color:var(--green)">GET</code> <code>/api/monitor/stats</code> <span class="dim">&mdash; aggregate request stats</span></div>
+
+          <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
+            <span class="dim" style="font-size:10px">Full interactive docs: <code>/docs</code> (Swagger) or <code>/redoc</code> (ReDoc). All endpoints tagged by category.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Troubleshooting ── -->
+      <div class="card">
+        <div class="card-title">TROUBLESHOOTING</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div>
+            <div style="font-weight:bold;color:var(--red);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SERVICE WON&rsquo;T START</div>
+            <span class="dim">Check if the container exists: <code>docker ps -a | grep &lt;name&gt;</code>. Verify it&rsquo;s on oaio-net: <code>docker inspect &lt;name&gt; | grep oaio-net</code>. Check logs via LIVE tab or <code>GET /services/{name}/logs</code>. Common cause: another service is using too much VRAM &mdash; switch modes or kill conflicting services.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--red);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">VRAM STUCK / OOM</div>
+            <span class="dim">Hit <b style="color:var(--red)">KILL ALL</b> to stop everything and free VRAM. If VRAM is still showing high after killing services, a process outside Docker may be using it. Check: <code>cat /sys/class/drm/card1/device/mem_info_vram_used</code>. ROCm sometimes needs a few seconds to release memory.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--red);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">NO VOICE OUTPUT</div>
+            <span class="dim">Ensure both Kokoro-TTS and RVC are running (oLLMo or oAudio mode). Check that RVC voice models exist in <code>/mnt/oaio/rvc-weights/</code>. Open-WebUI routes TTS through the RVC proxy at :8001 &mdash; if RVC is down, voice output silently fails.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--red);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SCANNER SHOWS NO ENDPOINTS</div>
+            <span class="dim">The service must be running for API scanning. Start it first, wait a few seconds for initialization, then scan. Some Gradio services take 10&ndash;30 seconds to load models before their API is ready.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--red);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">TELEMETRY SHOWS 0% / NaN</div>
+            <span class="dim">VRAM readings come from sysfs at <code>/sys/class/drm/card1/device/</code>. If the oAIo container can&rsquo;t read these files, telemetry breaks. Verify the DRI device mount in docker-compose.yml. Restart the oaio container if readings were working before.</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--red);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SYMLINK REPOINT FAILS</div>
+            <span class="dim">Target directory must exist and be accessible from inside the oAIo container. Check that the target path is mounted as a volume in docker-compose.yml. The API validates that the new target is under an allowed prefix.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tips ── -->
+      <div class="card">
+        <div class="card-title">TIPS &amp; SHORTCUTS</div>
+        <div class="settings-group" style="gap:6px;font-size:11px">
+          <div><span style="color:var(--accent);font-weight:bold">Mode switching</span> <span class="dim">&mdash;</span> No need to manually kill first. Activating a new mode gracefully stops displaced services, then starts the new ones.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Node click</span> <span class="dim">&mdash;</span> Click a service node&rsquo;s title bar in CONFIG to toggle start/stop. The bar turns <span style="color:var(--green)">green</span> when running, <span style="color:var(--red)">red</span> when stopped.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Canvas navigation</span> <span class="dim">&mdash;</span> Drag to pan, scroll to zoom. Right-click for context menu (add nodes, reset view).</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">VRAM ceiling</span> <span class="dim">&mdash;</span> Set a virtual limit in the Enforcement card to simulate smaller GPUs and test if modes fit.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Telemetry toggle</span> <span class="dim">&mdash;</span> Click the TELEMETRY pill in the top bar to show/hide the real-time gauges strip.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Workflow saves</span> <span class="dim">&mdash;</span> Snapshot everything (modes, services, paths, settings, graph) in SETTINGS &gt; Workflow Saves. Restore anytime.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Pull models</span> <span class="dim">&mdash;</span> Download Ollama models from CONFIG &gt; Pull Model. Progress shown in real-time. Models stored at <code>/mnt/oaio/ollama</code>.</div>
+          <div style="border-top:1px solid var(--border);padding-top:6px"><span style="color:var(--accent);font-weight:bold">Add RVC voices</span> <span class="dim">&mdash;</span> Drop .pth files into <code>/mnt/oaio/rvc-weights/</code>. No restart needed.</div>
+        </div>
+      </div>
+
+      <!-- ── Links ── -->
+      <div class="card">
+        <div class="card-title">LINKS &amp; INFO</div>
         <div class="settings-group" style="gap:6px;font-size:11px">
           <div><a href="https://github.com/zabyxc01/oAIo" target="_blank" rel="noopener" style="color:var(--accent)">GitHub Repository</a> <span class="dim">&mdash; source code, README, and releases</span></div>
           <div><a href="https://github.com/zabyxc01/oAIo/issues" target="_blank" rel="noopener" style="color:var(--accent)">Report an Issue</a> <span class="dim">&mdash; bugs, feature requests, questions</span></div>
-          <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
-            <span class="dim" style="font-size:10px">oAIo &mdash; local AI workstation orchestration. Ryzen 9 3900X &middot; RX 7900 XT 20 GB &middot; 62 GB RAM.</span>
+          <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SYSTEM SPECS</div>
+            <span class="dim">AMD Ryzen 9 3900X &middot; AMD RX 7900 XT 20 GB (ROCm 6.2) &middot; 62 GB RAM &middot; Ubuntu 22.04</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">SHELL TOOLS</div>
+            <span class="dim"><code>install.sh</code> &mdash; interactive installer (containers, models, symlinks). <code>update.sh</code> &mdash; backup + pull + rebuild + rolling restart. <code>repair.sh</code> &mdash; diagnose + fix symlinks + docker cleanup. <code>uninstall.sh</code> &mdash; interactive 7-step teardown (never deletes model data).</span>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:6px">
+            <div style="font-weight:bold;color:var(--accent);margin-bottom:2px;font-size:10px;letter-spacing:0.08em">START / STOP</div>
+            <span class="dim"><code>cd /mnt/storage/oAIo && docker compose up -d</code> to start. <code>docker compose down</code> to stop. Auto-start via <code>oaio-stack.service</code> (systemd).</span>
           </div>
         </div>
       </div>
