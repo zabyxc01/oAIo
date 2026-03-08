@@ -314,7 +314,7 @@ async function initLiteGraph() {
   }
 }
 
-// Sync LiteGraph node statuses from WS service data + push sparkline samples
+// Sync LiteGraph node statuses from WS service data
 function syncNodeStatuses(services, vramData) {
   if (!graph) return;
   const byName = {};
@@ -327,43 +327,16 @@ function syncNodeStatuses(services, vramData) {
     if (!live) return;
     const newStatus = live.status || "unknown";
     const newRam = live.ram_used_gb || 0;
-    // Update vramEst from live WS data if available (stays current with services.json edits)
-    if (live.vram_est_gb !== undefined) node._svc.vramEst = live.vram_est_gb;
-    if (live.ram_est_gb !== undefined) node._svc.ramEst = live.ram_est_gb;
-    if (live.memory_mode) node._svc.memoryMode = live.memory_mode;
     if (node._svc.status !== newStatus || node._svc.ramUsed !== newRam) {
-      const statusChanged = node._svc.status !== newStatus;
       node._svc.status = newStatus;
       node._svc.ramUsed = newRam;
       dirty = true;
       // Update title bar color on status change
-      if (statusChanged) {
-        const _green = _cs.getPropertyValue("--tier-ram-bg").trim() || "#0a2a14";
-        const _amber = _cs.getPropertyValue("--tier-sata-bg").trim() || "#2a1e00";
-        node.color = newStatus === "running" ? _green
-                   : newStatus === "stopped" || newStatus === "exited" ? _amber
-                   : _cs.getPropertyValue("--tier-nvme-bg").trim() || "#0d1a2f";
-      }
-    }
-    // Push sparkline sample: per-service resource consumption
-    if (typeof node._sparkPush === "function") {
-      let val;
-      if (newStatus === "running") {
-        const memMode = node._svc.memoryMode || "vram";
-        if (memMode === "vram" && node._svc.vramEst > 0) {
-          // VRAM service: show estimated VRAM consumption
-          val = node._svc.vramEst;
-        } else if (node._svc.ramEst > 0) {
-          // RAM-only service: show estimated RAM consumption
-          val = node._svc.ramEst;
-        } else {
-          // Fallback: binary running indicator
-          val = 1;
-        }
-      } else {
-        val = 0;
-      }
-      node._sparkPush(val);
+      const _green = _cs.getPropertyValue("--tier-ram-bg").trim() || "#0a2a14";
+      const _amber = _cs.getPropertyValue("--tier-sata-bg").trim() || "#2a1e00";
+      node.color = newStatus === "running" ? _green
+                 : newStatus === "stopped" || newStatus === "exited" ? _amber
+                 : _cs.getPropertyValue("--tier-nvme-bg").trim() || "#0d1a2f";
     }
   });
   if (dirty && canvas) canvas.setDirty(true, true);
@@ -1326,15 +1299,8 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
       const nc = _nodeColors();
       this.color   = nc.color;
       this.bgcolor = nc.bgcolor;
-      this.size    = [220, 130];
+      this.size    = [220, 100];
       this._svc    = { name, group, port, vramEst: vram, ramEst: 0, memoryMode: "vram", status: "unknown", ramUsed: 0 };
-      // Sparkline rolling buffer
-      this._sparkData  = [];
-      this._sparkMax   = 30;
-      const _grpKey = {"oLLM":"--grp-llm","oAudio":"--grp-audio","Render":"--grp-render","Control":"--grp-control"}[group];
-      this._grpHex = _grpKey ? (getComputedStyle(document.documentElement).getPropertyValue(_grpKey).trim() || "#555") : "#555";
-      this._sparkPhase = 0;
-      this._sparkAnim  = null;
       this._refreshStatus();
     }
     NodeClass.prototype = Object.create(LGraphNode.prototype);
@@ -1346,31 +1312,6 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
         this._svc.ramUsed = d.ram_used_gb || 0;
       } catch { this._svc.status = "error"; }
       this.setDirtyCanvas(true);
-    };
-    NodeClass.prototype._sparkPush = function(value) {
-      this._sparkData.push(value);
-      if (this._sparkData.length > this._sparkMax) this._sparkData.shift();
-      if (!this._sparkAnim) this._sparkStartAnim();
-    };
-    NodeClass.prototype._sparkStartAnim = function() {
-      const self = this;
-      let last = performance.now();
-      const interval = 50;
-      function tick(now) {
-        self._sparkAnim = requestAnimationFrame(tick);
-        if (now - last < interval) return;
-        const configTab = document.getElementById("tab-config");
-        if (configTab && !configTab.classList.contains("active")) return;
-        const dt = (now - last) / 1000;
-        last = now;
-        self._sparkPhase = (self._sparkPhase || 0) + dt * 3.0;
-        if (self._sparkPhase > Math.PI * 200) self._sparkPhase -= Math.PI * 200;
-        self.setDirtyCanvas(true);
-      }
-      this._sparkAnim = requestAnimationFrame(tick);
-    };
-    NodeClass.prototype.onRemoved = function() {
-      if (this._sparkAnim) { cancelAnimationFrame(this._sparkAnim); this._sparkAnim = null; }
     };
     NodeClass.prototype.onDrawBackground = function(ctx) {
       const s = this._svc;
@@ -1401,68 +1342,7 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
       const _cs = getComputedStyle(document.documentElement);
       ctx.fillStyle = _cs.getPropertyValue("--text-dim").trim() || "#555";
       ctx.font = "10px monospace";
-      const memMode = s.memoryMode || "vram";
-      const resVal = memMode === "vram" && s.vramEst > 0 ? s.vramEst : (s.ramEst || 0);
-      const resType = memMode === "vram" && s.vramEst > 0 ? "VRAM" : "RAM";
-      ctx.fillText(`${resType}: ${resVal}GB est`, 8, this.size[1] - 62);
-      ctx.fillText(`RAM used: ${s.ramUsed}GB`, 8, this.size[1] - 48);
-      ctx.fillText(`Group: ${s.group}`, 8, this.size[1] - 34);
-
-      // ── Sparkline ──────────────────────────────────────
-      const buf = this._sparkData;
-      if (!buf || buf.length < 2) return;
-      const pad   = 6;
-      const sparkH = 22;
-      const sparkY = this.size[1] - sparkH - pad;
-      const sparkW = this.size[0] - pad * 2;
-      const sparkX = pad;
-      let maxVal = 0;
-      for (let i = 0; i < buf.length; i++) { if (buf[i] > maxVal) maxVal = buf[i]; }
-      if (maxVal < 0.01) maxVal = 1;
-      const stepX = sparkW / (this._sparkMax - 1);
-      const pts = [];
-      for (let i = 0; i < buf.length; i++) {
-        pts.push({
-          x: sparkX + (this._sparkMax - buf.length + i) * stepX,
-          y: sparkY + sparkH - (buf[i] / maxVal) * sparkH,
-        });
-      }
-      const grpColor = this._grpHex;
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, sparkY + sparkH);
-      for (let i = 0; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.lineTo(pts[pts.length - 1].x, sparkY + sparkH);
-      ctx.closePath();
-      ctx.fillStyle = grpColor + "18";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.strokeStyle = grpColor + "cc";
-      ctx.lineWidth   = 1.5;
-      ctx.lineJoin    = "round";
-      ctx.stroke();
-      if (s.status === "running") {
-        const last = pts[pts.length - 1];
-        const noAnim = document.body.classList.contains("no-animations");
-        const phase = noAnim ? 0 : (this._sparkPhase || 0);
-        const glowR = noAnim ? 2.5 : 2.5 + Math.sin(phase) * 1.0;
-        const glowA = noAnim ? 0.7 : 0.6 + Math.sin(phase) * 0.25;
-        ctx.beginPath();
-        ctx.arc(last.x, last.y, glowR, 0, Math.PI * 2);
-        ctx.fillStyle = grpColor;
-        ctx.globalAlpha = glowA;
-        ctx.fill();
-        if (!noAnim) {
-          ctx.beginPath();
-          ctx.arc(last.x, last.y, glowR + 2.5, 0, Math.PI * 2);
-          ctx.fillStyle = grpColor;
-          ctx.globalAlpha = glowA * 0.25;
-          ctx.fill();
-        }
-      }
-      ctx.restore();
+      ctx.fillText(`Group: ${s.group}`, 8, this.size[1] - 8);
     };
     NodeClass.prototype.onMouseDown = function(e, pos) {
       if (pos[0] > this.size[0] - 34 && pos[1] < 26) {
