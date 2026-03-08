@@ -228,6 +228,8 @@
               <button class="grp-pill add-svc-btn" id="add-svc-btn">+ NODE</button>
               <button class="grp-pill add-mode-btn" id="add-mode-btn">+ MODE</button>
               <button class="grp-pill scan-btn" id="scan-docker-btn">SCAN</button>
+              <button class="grp-pill scan-btn" id="scan-api-btn">SCAN API</button>
+              <button class="grp-pill scan-btn" id="auto-wire-btn">AUTO WIRE</button>
             </div>
             <div id="discovery-dropdown" class="discovery-dropdown hidden"></div>
           </div>
@@ -363,6 +365,28 @@
       <div class="card card-full" id="card-config-allocs">
         <div class="card-title">MODE ALLOCATIONS</div>
         <div id="mode-allocs-body"></div>
+      </div>
+
+      <!-- API Scan Results panel (full width, hidden by default) -->
+      <div id="scan-results-panel" class="card card-full hidden">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          API SCAN RESULTS
+          <span id="scan-results-service" class="dim" style="font-size:9px"></span>
+          <div style="flex:1"></div>
+          <button class="mode-btn" id="scan-results-close">CLOSE</button>
+        </div>
+        <div id="scan-results-body"></div>
+      </div>
+
+      <!-- Auto Wire Results panel (full width, hidden by default) -->
+      <div id="autowire-results-panel" class="card card-full hidden">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px">
+          AUTO WIRE RESULTS
+          <span id="autowire-results-service" class="dim" style="font-size:9px"></span>
+          <div style="flex:1"></div>
+          <button class="mode-btn" id="autowire-results-close">CLOSE</button>
+        </div>
+        <div id="autowire-results-body"></div>
       </div>
 
     </div>

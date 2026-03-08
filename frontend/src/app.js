@@ -1508,6 +1508,312 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// --- API Scan + Auto Wire ---
+let _lastScanResult = null;
+let _lastScanService = null;
+let _preWirePorts = null; // stash for revert
+
+function renderScanResults(data) {
+  const body = document.getElementById("scan-results-body");
+  const svcSpan = document.getElementById("scan-results-service");
+  svcSpan.textContent = _lastScanService || "";
+
+  let html = "";
+
+  // Summary row: type badge + reachable + endpoint count
+  const typeClass = (data.api_type || "unknown").replace(/\s+/g, "_");
+  const reachable = data.reachable !== false;
+  html += `<div class="scan-summary">`;
+  html += `<span class="scan-type-badge ${_esc(typeClass)}">${_esc(data.api_type || "unknown")}</span>`;
+  html += `<span><span class="scan-status-dot ${reachable ? "reachable" : "unreachable"}"></span>${reachable ? "Reachable" : "Unreachable"}</span>`;
+  if (data.endpoints) {
+    html += `<span class="dim" style="font-size:10px">${data.endpoints.length} endpoint${data.endpoints.length !== 1 ? "s" : ""}</span>`;
+  }
+  html += `</div>`;
+
+  // Capabilities
+  if (data.capabilities && data.capabilities.length) {
+    html += `<div class="scan-capabilities">`;
+    data.capabilities.forEach(cap => {
+      html += `<span class="scan-capability-pill">${_esc(cap)}</span>`;
+    });
+    html += `</div>`;
+  }
+
+  // Endpoints grouped by tag
+  if (data.endpoints && data.endpoints.length) {
+    const groups = {};
+    data.endpoints.forEach(ep => {
+      const tag = ep.tag || ep.category || "General";
+      if (!groups[tag]) groups[tag] = [];
+      groups[tag].push(ep);
+    });
+
+    Object.keys(groups).sort().forEach(tag => {
+      html += `<div class="scan-endpoint-group">`;
+      html += `<div class="scan-endpoint-group-title">${_esc(tag)}</div>`;
+      groups[tag].forEach((ep, idx) => {
+        const method = (ep.method || "GET").toUpperCase();
+        const paramId = `scan-params-${_esc(tag)}-${idx}`;
+        html += `<div class="scan-endpoint-row" data-toggle-params="${paramId}">`;
+        html += `<span class="scan-method-pill ${_esc(method)}">${_esc(method)}</span>`;
+        html += `<span class="scan-endpoint-path">${_esc(ep.path || "")}</span>`;
+        html += `<span class="scan-endpoint-summary">${_esc(ep.summary || "")}</span>`;
+        html += `</div>`;
+        // Collapsible params
+        if (ep.parameters && ep.parameters.length) {
+          html += `<div class="scan-endpoint-params" id="${paramId}">`;
+          ep.parameters.forEach(p => {
+            html += `<div class="scan-param-row">`;
+            html += `<span class="scan-param-name">${_esc(p.name || "")}</span>`;
+            html += `<span class="scan-param-type">${_esc(p.type || p.schema || "")}</span>`;
+            if (p.required) html += `<span class="scan-param-required">required</span>`;
+            html += `</div>`;
+          });
+          html += `</div>`;
+        }
+      });
+      html += `</div>`;
+    });
+  }
+
+  // Suggested I/O ports preview
+  if (data.suggested_ports) {
+    const sp = data.suggested_ports;
+    html += `<div class="scan-io-preview">`;
+    html += `<div><div class="scan-io-column-title">INPUTS</div>`;
+    if (sp.inputs && sp.inputs.length) {
+      sp.inputs.forEach(p => {
+        html += `<div class="scan-io-port"><span class="scan-io-port-name">${_esc(p.name || p[0] || "")}</span><span class="scan-io-port-type">${_esc(p.type || p[1] || "data")}</span></div>`;
+      });
+    } else {
+      html += `<span class="dim" style="font-size:10px">None</span>`;
+    }
+    html += `</div>`;
+    html += `<div><div class="scan-io-column-title">OUTPUTS</div>`;
+    if (sp.outputs && sp.outputs.length) {
+      sp.outputs.forEach(p => {
+        html += `<div class="scan-io-port"><span class="scan-io-port-name">${_esc(p.name || p[0] || "")}</span><span class="scan-io-port-type">${_esc(p.type || p[1] || "data")}</span></div>`;
+      });
+    } else {
+      html += `<span class="dim" style="font-size:10px">None</span>`;
+    }
+    html += `</div></div>`;
+  }
+
+  body.innerHTML = html;
+
+  // Attach click handlers for collapsible endpoint params
+  body.querySelectorAll("[data-toggle-params]").forEach(row => {
+    row.addEventListener("click", () => {
+      const targetId = row.getAttribute("data-toggle-params");
+      const target = document.getElementById(targetId);
+      if (target) target.classList.toggle("open");
+    });
+  });
+
+  document.getElementById("scan-results-panel").classList.remove("hidden");
+}
+
+// SCAN API button
+document.getElementById("scan-api-btn").addEventListener("click", async () => {
+  if (!selectedNode) {
+    alert("Select a service node first");
+    return;
+  }
+  const svcName = selectedNode._svc?.name;
+  if (!svcName) {
+    alert("Selected node has no service attached");
+    return;
+  }
+
+  const btn = document.getElementById("scan-api-btn");
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "SCANNING...";
+
+  try {
+    const r = await _fetch(`${OLLMO_API}/services/${encodeURIComponent(svcName)}/scan`, { method: "POST" });
+    const data = await r.json();
+    if (data.error) {
+      alert("Scan failed: " + data.error);
+      return;
+    }
+    _lastScanResult = data;
+    _lastScanService = svcName;
+    renderScanResults(data);
+  } catch (e) {
+    alert("Scan failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+});
+
+// Close scan results
+document.getElementById("scan-results-close").addEventListener("click", () => {
+  document.getElementById("scan-results-panel").classList.add("hidden");
+});
+
+// AUTO WIRE button
+document.getElementById("auto-wire-btn").addEventListener("click", async () => {
+  if (!selectedNode) {
+    alert("Select a service node first");
+    return;
+  }
+  const svcName = selectedNode._svc?.name;
+  if (!svcName) {
+    alert("Selected node has no service attached");
+    return;
+  }
+  if (!_lastScanResult || _lastScanService !== svcName) {
+    alert("Run SCAN API first for this service");
+    return;
+  }
+
+  const btn = document.getElementById("auto-wire-btn");
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "WIRING...";
+
+  try {
+    const r = await _fetch(`${OLLMO_API}/services/${encodeURIComponent(svcName)}/autowire`, { method: "POST" });
+    const data = await r.json();
+    if (data.error) {
+      alert("Auto wire failed: " + data.error);
+      return;
+    }
+    renderAutoWireResults(data, svcName);
+  } catch (e) {
+    alert("Auto wire failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+});
+
+function renderAutoWireResults(data, svcName) {
+  const body = document.getElementById("autowire-results-body");
+  const svcSpan = document.getElementById("autowire-results-service");
+  svcSpan.textContent = svcName || "";
+
+  let html = "";
+
+  // I/O grid
+  html += `<div class="autowire-io-grid">`;
+  html += `<div><div class="autowire-io-column-title">INPUT PORTS</div>`;
+  if (data.inputs && data.inputs.length) {
+    data.inputs.forEach(p => {
+      const name = Array.isArray(p) ? p[0] : (p.name || "");
+      const type = Array.isArray(p) ? (p[1] || "data") : (p.type || "data");
+      html += `<div class="autowire-port-entry"><span class="autowire-port-name">${_esc(name)}</span><span class="autowire-port-type">${_esc(type)}</span></div>`;
+    });
+  } else {
+    html += `<span class="dim" style="font-size:10px">None</span>`;
+  }
+  html += `</div>`;
+
+  html += `<div><div class="autowire-io-column-title">OUTPUT PORTS</div>`;
+  if (data.outputs && data.outputs.length) {
+    data.outputs.forEach(p => {
+      const name = Array.isArray(p) ? p[0] : (p.name || "");
+      const type = Array.isArray(p) ? (p[1] || "data") : (p.type || "data");
+      html += `<div class="autowire-port-entry"><span class="autowire-port-name">${_esc(name)}</span><span class="autowire-port-type">${_esc(type)}</span></div>`;
+    });
+  } else {
+    html += `<span class="dim" style="font-size:10px">None</span>`;
+  }
+  html += `</div></div>`;
+
+  // Actions
+  html += `<div class="autowire-actions">`;
+  html += `<button class="mode-btn autowire-btn-apply" data-action="autowire-apply">APPLY</button>`;
+  html += `<button class="mode-btn autowire-btn-revert" data-action="autowire-revert" disabled>REVERT</button>`;
+  html += `</div>`;
+
+  body.innerHTML = html;
+
+  // APPLY handler
+  body.querySelector("[data-action='autowire-apply']").addEventListener("click", () => {
+    if (!selectedNode) return;
+    // Stash current ports for revert
+    _preWirePorts = {
+      inputs: selectedNode.inputs ? selectedNode.inputs.map(i => ({ name: i.name, type: i.type })) : [],
+      outputs: selectedNode.outputs ? selectedNode.outputs.map(o => ({ name: o.name, type: o.type })) : [],
+    };
+
+    // Remove existing I/O
+    while (selectedNode.inputs && selectedNode.inputs.length) {
+      selectedNode.removeInput(0);
+    }
+    while (selectedNode.outputs && selectedNode.outputs.length) {
+      selectedNode.removeOutput(0);
+    }
+
+    // Add new inputs
+    if (data.inputs) {
+      data.inputs.forEach(p => {
+        const name = Array.isArray(p) ? p[0] : (p.name || "input");
+        const type = Array.isArray(p) ? (p[1] || "data") : (p.type || "data");
+        selectedNode.addInput(name, type);
+      });
+    }
+    // Add new outputs
+    if (data.outputs) {
+      data.outputs.forEach(p => {
+        const name = Array.isArray(p) ? p[0] : (p.name || "output");
+        const type = Array.isArray(p) ? (p[1] || "data") : (p.type || "data");
+        selectedNode.addOutput(name, type);
+      });
+    }
+
+    // Resize node to fit new ports
+    const portCount = Math.max((selectedNode.inputs ? selectedNode.inputs.length : 0), (selectedNode.outputs ? selectedNode.outputs.length : 0));
+    selectedNode.size[1] = Math.max(100, 60 + portCount * 20);
+    selectedNode.setDirtyCanvas(true, true);
+
+    // Enable revert
+    const revertBtn = body.querySelector("[data-action='autowire-revert']");
+    if (revertBtn) revertBtn.disabled = false;
+
+    // Persist node config
+    if (typeof saveGraph === "function") saveGraph();
+  });
+
+  // REVERT handler
+  body.querySelector("[data-action='autowire-revert']").addEventListener("click", () => {
+    if (!selectedNode || !_preWirePorts) return;
+
+    // Remove current I/O
+    while (selectedNode.inputs && selectedNode.inputs.length) {
+      selectedNode.removeInput(0);
+    }
+    while (selectedNode.outputs && selectedNode.outputs.length) {
+      selectedNode.removeOutput(0);
+    }
+
+    // Restore previous ports
+    _preWirePorts.inputs.forEach(p => selectedNode.addInput(p.name, p.type));
+    _preWirePorts.outputs.forEach(p => selectedNode.addOutput(p.name, p.type));
+
+    const portCount = Math.max((_preWirePorts.inputs.length || 0), (_preWirePorts.outputs.length || 0));
+    selectedNode.size[1] = Math.max(100, 60 + portCount * 20);
+    selectedNode.setDirtyCanvas(true, true);
+
+    _preWirePorts = null;
+    body.querySelector("[data-action='autowire-revert']").disabled = true;
+
+    if (typeof saveGraph === "function") saveGraph();
+  });
+
+  document.getElementById("autowire-results-panel").classList.remove("hidden");
+}
+
+// Close autowire results
+document.getElementById("autowire-results-close").addEventListener("click", () => {
+  document.getElementById("autowire-results-panel").classList.add("hidden");
+});
+
 // --- Per-node config ---
 let selectedNode = null;
 let nodeConfigs  = {};
@@ -4702,7 +5008,7 @@ window.addEventListener("resize", _redrawBench);
 
     // Right: proxy + NODE, + MODE, SCAN
     rSec.innerHTML = "";
-    ["add-svc-btn", "add-mode-btn", "scan-docker-btn"].forEach(id => {
+    ["add-svc-btn", "add-mode-btn", "scan-docker-btn", "scan-api-btn", "auto-wire-btn"].forEach(id => {
       const orig = document.getElementById(id);
       if (!orig) return;
       const cl = orig.cloneNode(true);
