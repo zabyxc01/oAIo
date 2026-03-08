@@ -102,7 +102,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.vram import get_vram_usage, get_gpu_utilization
-from core.docker_control import get_status, start, stop, get_logs, all_status, apply_resource_limits, remove_resource_limits, discover_unregistered
+from core.docker_control import get_status, start, stop, get_logs, all_status, apply_resource_limits, remove_resource_limits, discover_unregistered, set_restart_policy
 from core.paths import get_all_paths, repoint, get_storage_stats, heal_dangling
 from core.resources import projected_vram, check_alerts, get_system_accounting
 from core.enforcer import enforcement_loop, active_modes as _active_modes, kill_log as _kill_log, register_manual_stop
@@ -825,6 +825,41 @@ def config_nodes_set(body: dict):
 @app.get("/config/storage/stats", tags=["Config"])
 def config_storage_stats():
     return get_storage_stats()
+
+
+@app.get("/config/boot", tags=["Config"])
+def get_boot_config():
+    """Get boot-with-system status."""
+    cfg = json.loads(SERVICES_CFG_FILE.read_text())
+    return {"enabled": cfg.get("boot_with_system", True)}
+
+
+@app.post("/config/boot", tags=["Config"])
+async def set_boot_config(body: dict):
+    """Toggle boot-with-system. Sets Docker restart policies on all service containers."""
+    enabled = body.get("enabled")
+    if enabled is None:
+        return {"error": "enabled (bool) is required"}
+    enabled = bool(enabled)
+    async with _config_lock:
+        cfg = json.loads(SERVICES_CFG_FILE.read_text())
+        cfg["boot_with_system"] = enabled
+        _atomic_write(SERVICES_CFG_FILE, json.dumps(cfg, indent=2))
+
+    # Update Docker restart policies
+    services = cfg.get("services", {})
+    results = []
+    for svc_name, svc in services.items():
+        ctr = svc.get("container")
+        if not ctr:
+            continue
+        if enabled and svc.get("boot_with_system", False):
+            policy = "unless-stopped"
+        else:
+            policy = "no"
+        results.append(set_restart_policy(ctr, policy))
+
+    return {"enabled": enabled, "results": results}
 
 
 @app.get("/benchmark/history", tags=["System"])

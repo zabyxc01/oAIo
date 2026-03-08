@@ -4045,6 +4045,27 @@ function initSettingsHandlers() {
   bind("set-tier-ram-bg", "tierRamBg");
   bind("set-tier-vram-bg", "tierVramBg");
 
+  // Boot with system — API-backed, not localStorage
+  const bootEl = document.getElementById("set-boot-with-system");
+  if (bootEl) {
+    fetch(`${OLLMO_API}/config/boot`).then(r => r.json()).then(d => {
+      bootEl.checked = d.enabled !== false;
+    }).catch(() => {});
+    bootEl.addEventListener("change", () => {
+      fetch(`${OLLMO_API}/config/boot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: bootEl.checked }),
+      }).then(r => r.json()).then(d => {
+        if (d.error) { showAlert("warning", d.error); bootEl.checked = !bootEl.checked; return; }
+        showAlert("info", `Boot with system ${d.enabled ? "enabled" : "disabled"}`);
+      }).catch(e => {
+        showAlert("warning", "Failed to update boot setting: " + e.message);
+        bootEl.checked = !bootEl.checked;
+      });
+    });
+  }
+
   // Background image upload
   document.getElementById("set-bg-upload-btn").addEventListener("click", () => {
     document.getElementById("set-bg-file").click();

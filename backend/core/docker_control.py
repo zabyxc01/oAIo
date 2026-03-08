@@ -95,6 +95,16 @@ def remove_resource_limits(container_name: str) -> dict:
         return {"name": container_name, "ok": False, "error": str(e)}
 
 
+def set_restart_policy(container_name: str, policy: str = "unless-stopped") -> dict:
+    """Set restart policy on a container. policy: 'no', 'unless-stopped', 'always', 'on-failure'."""
+    try:
+        c = _get_client().containers.get(container_name)
+        c.update(restart_policy={"Name": policy, "MaximumRetryCount": 0})
+        return {"name": container_name, "ok": True, "restart_policy": policy}
+    except Exception as e:
+        return {"name": container_name, "ok": False, "error": str(e)}
+
+
 def all_status(service_registry: dict) -> list:
     return [
         get_status(s["container"])
