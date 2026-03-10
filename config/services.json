@@ -71,7 +71,7 @@
       "auto_restore": false,
       "group": "oAudio",
       "memory_mode": "vram",
-      "bus_preference": "nvme",
+      "bus_preference": "sata",
       "boot_with_system": false,
       "description": "Voice conversion + proxy",
       "capabilities": [
@@ -109,7 +109,7 @@
       "auto_restore": false,
       "group": "Render",
       "memory_mode": "vram",
-      "bus_preference": "nvme",
+      "bus_preference": "sata",
       "boot_with_system": false,
       "description": "Image generation \u2014 Flux.1-dev",
       "capabilities": [

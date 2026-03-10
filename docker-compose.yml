@@ -75,11 +75,11 @@ services:
       - "${OAIO_BIND:-127.0.0.1}:7865:7865"
       - "${OAIO_BIND:-127.0.0.1}:8001:8001"
     volumes:
-      - /mnt/oaio/audio:/models
       - /mnt/oaio/rvc-ref:/rvc/audio
       - /mnt/oaio/rvc-weights:/rvc/assets/weights
       - /mnt/oaio/rvc-indices:/rvc/assets/indices
       - ./docker/rvc/rvc_proxy.py:/rvc/rvc_proxy.py
+      - /mnt/oaio/staging/rvc-output:/rvc/output
     environment:
       - KOKORO_URL=http://kokoro-tts:8000
     devices:
@@ -96,11 +96,13 @@ services:
     container_name: f5-tts
     restart: unless-stopped
     networks: [oaio-net]
+    entrypoint: ["/bin/bash", "-c", "pip uninstall torchcodec -y 2>/dev/null; python3 launch.py"]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:7860:7860"
     volumes:
       - /mnt/oaio/hf-cache:/hf-cache
       - /mnt/oaio/ref-audio:/ref-audio
+      - /mnt/oaio/staging/f5-output:/output
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -119,6 +121,7 @@ services:
       - "${OAIO_BIND:-127.0.0.1}:7870:7870"
     volumes:
       - /mnt/oaio/hf-cache:/root/.cache/huggingface
+      - /mnt/oaio/staging/styletts2-output:/output
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
