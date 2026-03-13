@@ -35,8 +35,8 @@
         ],
         "title": "Ollama",
         "properties": {},
-        "color": "#2a2a1a",
-        "bgcolor": "#1a1a1a"
+        "color": "#0d1a2f",
+        "bgcolor": "rgb(8, 20, 29)"
       },
       {
         "id": 5,
@@ -70,8 +70,8 @@
         ],
         "title": "F5-tts",
         "properties": {},
-        "color": "#2a2a1a",
-        "bgcolor": "#1a1a1a"
+        "color": "#252525",
+        "bgcolor": "hsl(0,0%,3.9%)"
       },
       {
         "id": 4,
@@ -127,43 +127,8 @@
         ],
         "title": "Open-webui",
         "properties": {},
-        "color": "#2a2a1a",
-        "bgcolor": "#1a1a1a"
-      },
-      {
-        "id": 6,
-        "type": "oAIo/comfyui",
-        "pos": [
-          580,
-          59
-        ],
-        "size": [
-          180,
-          70
-        ],
-        "flags": {},
-        "order": 5,
-        "mode": 0,
-        "inputs": [
-          {
-            "name": "imggen_req",
-            "type": "request",
-            "link": 2
-          }
-        ],
-        "outputs": [
-          {
-            "name": "image",
-            "type": "image",
-            "links": [
-              7
-            ]
-          }
-        ],
-        "title": "Comfyui",
-        "properties": {},
-        "color": "#2a2a1a",
-        "bgcolor": "#1a1a1a"
+        "color": "#0d1a2f",
+        "bgcolor": "rgb(8, 20, 29)"
       },
       {
         "id": 2,
@@ -197,8 +162,8 @@
         ],
         "title": "Kokoro-tts",
         "properties": {},
-        "color": "#2a2a1a",
-        "bgcolor": "#1a1a1a"
+        "color": "#0d1a2f",
+        "bgcolor": "rgb(31, 20, 5)"
       },
       {
         "id": 3,
@@ -237,8 +202,43 @@
         ],
         "title": "Rvc",
         "properties": {},
-        "color": "#2a2a1a",
-        "bgcolor": "#1a1a1a"
+        "color": "#0a2a14",
+        "bgcolor": "rgb(31, 20, 5)"
+      },
+      {
+        "id": 6,
+        "type": "oAIo/comfyui",
+        "pos": [
+          580,
+          59
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 5,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "imggen_req",
+            "type": "request",
+            "link": 2
+          }
+        ],
+        "outputs": [
+          {
+            "name": "image",
+            "type": "image",
+            "links": [
+              7
+            ]
+          }
+        ],
+        "title": "Comfyui",
+        "properties": {},
+        "color": "#252525",
+        "bgcolor": "hsl(0,0%,3.9%)"
       }
     ],
     "links": [

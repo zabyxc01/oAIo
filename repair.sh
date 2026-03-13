@@ -439,7 +439,7 @@ diagnose_hf_cache() {
   printf "\n"
 
   local home_hf="$HOME/.cache/huggingface/hub"
-  local storage_hf="/mnt/storage/ai/audio/huggingface/hub"
+  local storage_hf="/mnt/windows-sata/oaio-hub/f5-tts/hf-cache/hub"
 
   if [[ ! -d "$home_hf" ]]; then
     ok "No home cache at $home_hf"
@@ -878,7 +878,7 @@ hf_cache_dedup() {
   printf "\n"
 
   local home_hf_root="$HOME/.cache/huggingface"
-  local storage_hf_root="/mnt/storage/ai/audio/huggingface"
+  local storage_hf_root="/mnt/windows-sata/oaio-hub/f5-tts/hf-cache"
   local home_hub="$home_hf_root/hub"
   local storage_hub="$storage_hf_root/hub"
 
@@ -959,11 +959,11 @@ stray_model_cleanup() {
 
     case "$ext" in
       safetensors|ckpt)
-        dest_dir="/mnt/storage/ai/comfyui/models/checkpoints"
+        dest_dir="/mnt/windows-sata/oaio-hub/comfyui/models/checkpoints"
         dest_label="ComfyUI checkpoints"
         ;;
       pth)
-        dest_dir="/mnt/storage/ai/audio/rvc-weights"
+        dest_dir="/mnt/windows-sata/oaio-hub/rvc/weights"
         dest_label="RVC weights"
         ;;
       gguf)

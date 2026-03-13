@@ -2059,7 +2059,7 @@ function updateMemorySub(saved) {
     const lbl = document.getElementById("sub-ram-limit-val");
     sl.addEventListener("input", () => { lbl.textContent = sl.value + " GB"; saveNodeConfig(); });
   } else if (val === "storage") {
-    const p = saved?.swapPath || "/mnt/storage/swap";
+    const p = saved?.swapPath || "/mnt/oaio/swap";
     setSubHtml("sub-memory",
       `<label>Swap file path</label>
        <input type="text" id="sub-swap-path" value="${p}"
@@ -3123,7 +3123,7 @@ function _pathTierClass(path) {
   if (path.startsWith("/mnt/windows-sata")) return "path-tier-sata";
   if (path.startsWith("/mnt/storage"))      return "path-tier-nvme";
   if (path.startsWith("/dev/shm"))          return "path-tier-ram";
-  if (path.startsWith("/mnt/oaio"))         return "path-tier-nvme";
+  if (path.startsWith("/mnt/oaio"))         return "path-tier-sata";
   return "path-tier-os";
 }
 

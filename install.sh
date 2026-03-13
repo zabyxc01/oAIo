@@ -530,10 +530,7 @@ detect_gpu() {
 write_env() {
   step "Writing .env"
 
-  local existing_ollama_dir=""
   if [[ -f "$ENV_FILE" ]]; then
-    existing_ollama_dir=$(grep "^OLLAMA_MODELS_DIR=" "$ENV_FILE" 2>/dev/null \
-      | cut -d= -f2- || true)
     info "Existing .env found — updating."
   fi
 
@@ -567,8 +564,10 @@ OAIO_UI_ONLY=${_ui_only}
 OAIO_REMOTE_API=${REMOTE_API_URL:-}
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-OLLAMA_MODELS_DIR=${existing_ollama_dir:-/mnt/windows-sata/ollama-models}
-STORAGE_ROOT=/mnt/storage
+OAIO_ROOT_DRIVE=${OAIO_ROOT:-}
+OAIO_STAGING_DRIVE=${STAGING_DRIVE:-}
+OAIO_HUB_DIR=${HUB_DIR:-}
+OAIO_STAGING_DIR=${STAGING_DIR:-}
 OAIO_SYMLINK_ROOT=/mnt/oaio
 
 # ── Service ports ─────────────────────────────────────────────────────────────
@@ -588,64 +587,135 @@ ENVEOF
   ok ".env written to $ENV_FILE"
 }
 
-# ─── Step 4 — Path configuration + symlinks ──────────────────────────────────
+# ─── Step 4 — Drive discovery + path configuration + symlinks ────────────────
 
-OLLAMA_MODELS_PATH="/mnt/windows-sata/ollama-models"
-COMFYUI_MODELS_PATH="/mnt/storage/ai/comfyui/models"
-AUDIO_PATH="/mnt/storage/ai/audio"
-HF_CACHE_PATH="/mnt/storage/ai/audio/huggingface"
-TRAINING_PATH="/mnt/storage/ai/training"
-COMFYUI_BASE_PATH="$HOME/ComfyUI"
-REF_AUDIO_PATH="$HOME/reference-audio"
-RVC_REF_PATH="$HOME/Videos/audio/_EDITED"
-STORAGE_ROOT="/mnt/storage"
+OAIO_ROOT=""          # Drive where oAIo stores everything (code, models, hub)
+STAGING_DRIVE=""      # Fast drive for output staging (NVMe preferred)
+HUB_DIR=""            # oaio-hub directory (auto-created on OAIO_ROOT)
+STAGING_DIR=""        # staging directory (auto-created on STAGING_DRIVE)
 
-ask_custom_paths() {
-  step "Step 4 — Path configuration"
+discover_drives() {
+  step "Step 4a — Drive discovery"
   printf "\n"
-  info "The symlink layer maps /mnt/oaio/* to your actual data directories."
-  info "Defaults shown in [brackets]. Press Enter to accept.\n"
+  info "Scanning mounted drives...\n"
 
-  _ask_path() {
-    local label="$1" default="$2" varname="$3"
-    printf "  ${C_BOLD}%-28s${C_RESET} [%s]: " "$label" "$default"
-    local input; read -r input
-    printf -v "$varname" '%s' "${input:-$default}"
-  }
+  local _drives=()
+  local _labels=()
+  local _idx=0
 
-  _ask_path "Ollama models dir"   "$OLLAMA_MODELS_PATH" OLLAMA_MODELS_PATH
-  _ask_path "AI storage root"     "$STORAGE_ROOT"       STORAGE_ROOT
+  while IFS= read -r line; do
+    local dev mount size used avail pct
+    read -r dev size used avail pct mount <<< "$line"
+    # Skip virtual/system filesystems
+    [[ "$mount" == "/" || "$mount" =~ ^/mnt/ || "$mount" =~ ^/media/ ]] || continue
+    # Skip tiny mounts (< 10 GB)
+    local avail_gb=$(( ${avail%?} / 1024 / 1024 )) 2>/dev/null || continue
+    [[ $avail_gb -lt 1 ]] && continue
 
-  COMFYUI_MODELS_PATH="${STORAGE_ROOT}/ai/comfyui/models"
-  AUDIO_PATH="${STORAGE_ROOT}/ai/audio"
-  HF_CACHE_PATH="${STORAGE_ROOT}/ai/audio/huggingface"
-  TRAINING_PATH="${STORAGE_ROOT}/ai/training"
+    _idx=$(( _idx + 1 ))
+    _drives+=("$mount")
 
-  _ask_path "ComfyUI install dir" "$COMFYUI_BASE_PATH"  COMFYUI_BASE_PATH
-  _ask_path "Reference audio dir" "$REF_AUDIO_PATH"     REF_AUDIO_PATH
-  _ask_path "RVC reference audio" "$RVC_REF_PATH"       RVC_REF_PATH
+    local type_hint=""
+    case "$dev" in
+      /dev/nvme*) type_hint="${C_CYAN}NVMe${C_RESET}" ;;
+      /dev/sd*)   type_hint="${C_YELLOW}SATA/USB${C_RESET}" ;;
+      *)          type_hint="${C_DIM}other${C_RESET}" ;;
+    esac
+
+    printf "  ${C_BOLD}%d)${C_RESET} %-28s %b  %s total, %s free (%s used)\n" \
+      "$_idx" "$mount" "$type_hint" "$size" "$avail" "$pct"
+    _labels+=("$mount ($avail free)")
+  done < <(df -h --output=source,size,used,avail,pcent,target 2>/dev/null | tail -n +2)
+
+  if [[ ${#_drives[@]} -eq 0 ]]; then
+    die "No suitable drives found."
+  fi
 
   printf "\n"
-  ok "Paths confirmed."
+  printf "  ${C_BOLD}oAIo Root Drive${C_RESET} — where oAIo stores EVERYTHING:\n"
+  printf "  code, Docker images, models, configs, hub data.\n\n"
+
+  while true; do
+    read -rp "  Select root drive [1-${#_drives[@]}]: " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#_drives[@]} ]]; then
+      OAIO_ROOT="${_drives[$(( choice - 1 ))]}"
+      break
+    fi
+    warn "Enter a number between 1 and ${#_drives[@]}."
+  done
+  ok "Root drive: ${C_BOLD}${OAIO_ROOT}${C_RESET}"
+
+  printf "\n"
+  printf "  ${C_BOLD}Staging Drive${C_RESET} — fast I/O tier for audio/render output.\n"
+  printf "  Pick your fastest drive (NVMe preferred). Same as root is OK.\n\n"
+
+  while true; do
+    read -rp "  Select staging drive [1-${#_drives[@]}]: " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#_drives[@]} ]]; then
+      STAGING_DRIVE="${_drives[$(( choice - 1 ))]}"
+      break
+    fi
+    warn "Enter a number between 1 and ${#_drives[@]}."
+  done
+  ok "Staging drive: ${C_BOLD}${STAGING_DRIVE}${C_RESET}"
+
+  # Derived paths
+  HUB_DIR="${OAIO_ROOT}/oaio-hub"
+  STAGING_DIR="${STAGING_DRIVE}/staging"
+}
+
+scaffold_directories() {
+  step "Step 4b — Scaffolding directory structure"
+  need_sudo
+
+  info "Creating oaio-hub on ${OAIO_ROOT}..."
+
+  local hub_dirs=(
+    "${HUB_DIR}"
+    "${HUB_DIR}/comfyui/models"
+    "${HUB_DIR}/comfyui/custom_nodes"
+    "${HUB_DIR}/comfyui/user"
+    "${HUB_DIR}/comfyui/output"
+    "${HUB_DIR}/comfyui/input"
+    "${HUB_DIR}/comfyui/workflows"
+    "${HUB_DIR}/kokoro/models"
+    "${HUB_DIR}/f5-tts/hf-cache"
+    "${HUB_DIR}/f5-tts/ref-audio"
+    "${HUB_DIR}/rvc/weights"
+    "${HUB_DIR}/rvc/indices"
+    "${HUB_DIR}/ollama"
+    "${HUB_DIR}/training"
+    "${HUB_DIR}/_staging"
+    "${OAIO_ROOT}/ollama"
+  )
+
+  for d in "${hub_dirs[@]}"; do
+    [[ -d "$d" ]] || { mkdir -p "$d" 2>/dev/null || run_root mkdir -p "$d"; }
+  done
+  ok "oaio-hub scaffolded at ${HUB_DIR}"
+
+  info "Creating staging on ${STAGING_DRIVE}..."
+
+  local staging_dirs=(
+    "${STAGING_DIR}"
+    "${STAGING_DIR}/rvc-ref"
+    "${STAGING_DIR}/rvc-output"
+    "${STAGING_DIR}/f5-output"
+    "${STAGING_DIR}/styletts2-output"
+  )
+
+  for d in "${staging_dirs[@]}"; do
+    [[ -d "$d" ]] || { mkdir -p "$d" 2>/dev/null || run_root mkdir -p "$d"; }
+  done
+  ok "Staging scaffolded at ${STAGING_DIR}"
 }
 
 run_symlinks() {
-  step "Creating /mnt/oaio symlinks"
+  step "Step 4c — Creating /mnt/oaio symlinks"
   need_sudo
 
   [[ -d /mnt/oaio ]] || run_root mkdir -p /mnt/oaio
-
-  local dirs=(
-    "$COMFYUI_MODELS_PATH" "${COMFYUI_MODELS_PATH}/loras"
-    "$AUDIO_PATH" "${AUDIO_PATH}/kokoro-voices"
-    "$HF_CACHE_PATH" "${AUDIO_PATH}/rvc-weights" "${AUDIO_PATH}/rvc-indices"
-    "$TRAINING_PATH" "${STORAGE_ROOT}/swap" "$REF_AUDIO_PATH"
-    "${COMFYUI_BASE_PATH}/custom_nodes" "${COMFYUI_BASE_PATH}/user"
-    "${COMFYUI_BASE_PATH}/output" "${COMFYUI_BASE_PATH}/input"
-  )
-  for d in "${dirs[@]}"; do
-    [[ -d "$d" ]] || { info "Creating: $d"; mkdir -p "$d" 2>/dev/null || run_root mkdir -p "$d"; }
-  done
+  [[ -d /mnt/oaio/staging ]] || run_root mkdir -p /mnt/oaio/staging
 
   _link() {
     local name="$1" target="$2" link="/mnt/oaio/$1"
@@ -658,30 +728,100 @@ run_symlinks() {
     fi
   }
 
-  _link ollama        "$OLLAMA_MODELS_PATH"
-  _link models        "$COMFYUI_MODELS_PATH"
-  _link lora          "${COMFYUI_MODELS_PATH}/loras"
-  _link custom-nodes  "${COMFYUI_BASE_PATH}/custom_nodes"
-  _link comfyui-user  "${COMFYUI_BASE_PATH}/user"
-  _link outputs       "${COMFYUI_BASE_PATH}/output"
-  _link inputs        "${COMFYUI_BASE_PATH}/input"
-  _link audio         "$AUDIO_PATH"
-  _link kokoro-voices "${AUDIO_PATH}/kokoro-voices"
-  _link hf-cache      "$HF_CACHE_PATH"
-  _link ref-audio     "$REF_AUDIO_PATH"
-  _link rvc-ref       "$RVC_REF_PATH"
-  _link swap          "${STORAGE_ROOT}/swap"
-  _link training      "$TRAINING_PATH"
-  _link rvc-weights   "${AUDIO_PATH}/rvc-weights"
-  _link rvc-indices   "${AUDIO_PATH}/rvc-indices"
+  # Root drive (oaio-hub) — all model/data storage
+  _link ollama           "${OAIO_ROOT}/ollama"
+  _link models           "${HUB_DIR}/comfyui/models"
+  _link custom-nodes     "${HUB_DIR}/comfyui/custom_nodes"
+  _link comfyui-user     "${HUB_DIR}/comfyui/user"
+  _link outputs          "${HUB_DIR}/comfyui/output"
+  _link inputs           "${HUB_DIR}/comfyui/input"
+  _link kokoro-voices    "${HUB_DIR}/kokoro/models"
+  _link hf-cache         "${HUB_DIR}/f5-tts/hf-cache"
+  _link ref-audio        "${HUB_DIR}/f5-tts/ref-audio"
+  _link rvc-weights      "${HUB_DIR}/rvc/weights"
+  _link rvc-indices      "${HUB_DIR}/rvc/indices"
+  _link swap             "${HUB_DIR}/_staging"
+  _link workflows        "${HUB_DIR}/comfyui/workflows"
+
+  # Staging drive (fast tier) — output buffers
+  _link staging                    "${STAGING_DIR}"
+  _link rvc-ref                    "${STAGING_DIR}/rvc-ref"
+  _link staging/rvc-output         "${STAGING_DIR}/rvc-output"
+  _link staging/f5-output          "${STAGING_DIR}/f5-output"
+  _link staging/styletts2-output   "${STAGING_DIR}/styletts2-output"
 
   printf "\n"
-  ok "All 16 symlinks verified under /mnt/oaio"
+  ok "All symlinks verified under /mnt/oaio"
 
   [[ -f "$ENV_FILE" ]] && \
-    sed -i "s|^OLLAMA_MODELS_DIR=.*|OLLAMA_MODELS_DIR=${OLLAMA_MODELS_PATH}|" "$ENV_FILE"
+    sed -i "s|^OLLAMA_MODELS_DIR=.*|OLLAMA_MODELS_DIR=${OAIO_ROOT}/ollama|" "$ENV_FILE"
 
   update_paths_config
+}
+
+configure_docker_root() {
+  step "Step 4d — Docker data-root"
+  printf "\n"
+
+  local current_root
+  current_root=$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/{print $2}' || echo "/var/lib/docker")
+  info "Current Docker data-root: ${current_root}"
+
+  # Check if Docker is already on the oAIo root drive
+  if [[ "$current_root" == "${OAIO_ROOT}/docker" ]]; then
+    ok "Docker already on oAIo root drive."
+    return 0
+  fi
+
+  # Check if current root is on the same filesystem as OAIO_ROOT
+  local current_dev oaio_dev
+  current_dev=$(df "$current_root" 2>/dev/null | awk 'NR==2{print $1}')
+  oaio_dev=$(df "$OAIO_ROOT" 2>/dev/null | awk 'NR==2{print $1}')
+
+  if [[ "$current_dev" == "$oaio_dev" ]]; then
+    ok "Docker already on same drive as oAIo root."
+    return 0
+  fi
+
+  local docker_size
+  docker_size=$(du -sh "$current_root" 2>/dev/null | awk '{print $1}' || echo "unknown")
+  info "Docker is using ${docker_size} on a different drive."
+  printf "\n"
+  printf "  Move Docker data-root to ${C_BOLD}${OAIO_ROOT}/docker${C_RESET}?\n"
+  printf "  This keeps all oAIo infrastructure on one drive.\n"
+  printf "  ${C_YELLOW}All containers will stop during the move.${C_RESET}\n\n"
+
+  read -rp "  Move Docker to oAIo root drive? [y/N]: " yn
+  case "${yn:-N}" in
+    [Yy]*)
+      need_sudo
+      info "Stopping Docker..."
+      run_root systemctl stop docker docker.socket
+
+      info "Copying Docker data (this may take a while)..."
+      run_root rsync -aP "${current_root}/" "${OAIO_ROOT}/docker/"
+
+      info "Configuring Docker data-root..."
+      run_root mkdir -p /etc/docker
+      printf '{\n  "data-root": "%s/docker"\n}\n' "$OAIO_ROOT" \
+        | run_root tee /etc/docker/daemon.json > /dev/null
+
+      info "Starting Docker..."
+      run_root systemctl start docker
+
+      local new_root
+      new_root=$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/{print $2}')
+      if [[ "$new_root" == "${OAIO_ROOT}/docker" ]]; then
+        ok "Docker data-root moved to ${OAIO_ROOT}/docker"
+        printf "\n"
+        info "Old data at ${current_root} can be removed after verifying everything works:"
+        dim "    sudo rm -rf ${current_root}"
+      else
+        err "Docker data-root move may have failed. Check: docker info"
+      fi
+      ;;
+    *) info "Keeping Docker at ${current_root}." ;;
+  esac
 }
 
 update_paths_config() {
@@ -698,22 +838,24 @@ with open(cfg_path, "r") as f:
     cfg = json.load(f)
 
 updates = {
-    "ollama":        "${OLLAMA_MODELS_PATH}",
-    "models":        "${COMFYUI_MODELS_PATH}",
-    "lora":          "${COMFYUI_MODELS_PATH}/loras",
-    "custom-nodes":  "${COMFYUI_BASE_PATH}/custom_nodes",
-    "comfyui-user":  "${COMFYUI_BASE_PATH}/user",
-    "outputs":       "${COMFYUI_BASE_PATH}/output",
-    "inputs":        "${COMFYUI_BASE_PATH}/input",
-    "audio":         "${AUDIO_PATH}",
-    "kokoro-voices": "${AUDIO_PATH}/kokoro-voices",
-    "hf-cache":      "${HF_CACHE_PATH}",
-    "ref-audio":     "${REF_AUDIO_PATH}",
-    "rvc-ref":       "${RVC_REF_PATH}",
-    "rvc-weights":   "${AUDIO_PATH}/rvc-weights",
-    "rvc-indices":   "${AUDIO_PATH}/rvc-indices",
-    "swap":          "${STORAGE_ROOT}/swap",
-    "training":      "${TRAINING_PATH}",
+    "ollama":           "${OAIO_ROOT}/ollama",
+    "models":           "${HUB_DIR}/comfyui/models",
+    "custom-nodes":     "${HUB_DIR}/comfyui/custom_nodes",
+    "comfyui-user":     "${HUB_DIR}/comfyui/user",
+    "outputs":          "${HUB_DIR}/comfyui/output",
+    "inputs":           "${HUB_DIR}/comfyui/input",
+    "kokoro-voices":    "${HUB_DIR}/kokoro/models",
+    "hf-cache":         "${HUB_DIR}/f5-tts/hf-cache",
+    "ref-audio":        "${HUB_DIR}/f5-tts/ref-audio",
+    "rvc-weights":      "${HUB_DIR}/rvc/weights",
+    "rvc-indices":      "${HUB_DIR}/rvc/indices",
+    "swap":             "${HUB_DIR}/_staging",
+    "workflows":        "${HUB_DIR}/comfyui/workflows",
+    "rvc-ref":          "${STAGING_DIR}/rvc-ref",
+    "staging":          "${STAGING_DIR}",
+    "rvc-output":       "${STAGING_DIR}/rvc-output",
+    "f5-output":        "${STAGING_DIR}/f5-output",
+    "styletts2-output": "${STAGING_DIR}/styletts2-output",
 }
 
 for key, new_target in updates.items():
@@ -933,6 +1075,8 @@ print_summary() {
     printf "  ${C_DIM}GPU: ${GPU_VENDOR}"
     [[ "$GPU_VENDOR" == "amd" ]] && printf " / ${AMD_GFX} (HSA: ${AMD_HSA_VERSION})"
     printf "${C_RESET}\n"
+    printf "  ${C_DIM}Root   : ${OAIO_ROOT:-?}${C_RESET}\n"
+    printf "  ${C_DIM}Staging: ${STAGING_DRIVE:-?}${C_RESET}\n"
     printf "  ${C_DIM}Links  : /mnt/oaio/*${C_RESET}\n"
   fi
   printf "  ${C_DIM}Config : ${ENV_FILE}${C_RESET}\n\n"
@@ -960,8 +1104,10 @@ main() {
   fi
   write_env
   if [[ "$DEPLOY_TYPE" != "ui-only" ]]; then
-    ask_custom_paths
+    discover_drives
+    scaffold_directories
     run_symlinks
+    configure_docker_root
   fi
   build_and_start
   if [[ "$DEPLOY_TYPE" != "ui-only" ]]; then

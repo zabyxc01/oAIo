@@ -67,10 +67,14 @@ services:
 
   # ── RVC (voice conversion proxy) ─────────────────────────────────────────────
   rvc:
-    image: rvc
+    build:
+      context: .
+      dockerfile: docker/rvc/Dockerfile
+    image: rvc:fixed
     container_name: rvc
     restart: unless-stopped
     networks: [oaio-net]
+    command: ["/bin/bash", "-c", "python3 /rvc/infer-web.py --pycmd python3 --port 7865 --noautoopen & python3 /rvc/rvc_proxy.py"]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:7865:7865"
       - "${OAIO_BIND:-127.0.0.1}:8001:8001"
@@ -92,11 +96,13 @@ services:
 
   # ── F5-TTS (voice cloning) ────────────────────────────────────────────────────
   f5-tts:
-    image: f5-tts
+    build:
+      context: .
+      dockerfile: docker/f5-tts/Dockerfile
+    image: f5-tts:fixed
     container_name: f5-tts
     restart: unless-stopped
     networks: [oaio-net]
-    entrypoint: ["/bin/bash", "-c", "pip uninstall torchcodec -y 2>/dev/null; python3 launch.py"]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:7860:7860"
     volumes:
@@ -182,8 +188,6 @@ services:
       - /dev/shm:/dev/shm                       # RAM tier — host tmpfs for fast staging
       - /mnt/storage:/mnt/storage:ro
       - /mnt/windows-sata:/mnt/windows-sata:ro
-      - /home/oao/reference-audio:/home/oao/reference-audio:ro
-      - /home/oao/Videos/audio/_EDITED:/home/oao/Videos/audio/_EDITED:ro
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri

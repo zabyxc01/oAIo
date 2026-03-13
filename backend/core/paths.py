@@ -9,7 +9,10 @@ from pathlib import Path
 
 SYMLINK_ROOT = Path(os.environ.get("OAIO_SYMLINK_ROOT", "/mnt/oaio"))
 
-_ALLOWED_TARGETS = ["/mnt/storage", "/mnt/windows-sata", "/dev/shm", "/home/oao", "/tmp"]
+_ALLOWED_TARGETS = [
+    "/mnt/storage", "/mnt/windows-sata", "/dev/shm", "/tmp",
+    os.environ.get("HOME", "/home/oao"),
+]
 
 _TIER_MAP = {
     "/mnt/storage":      "nvme",

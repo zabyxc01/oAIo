@@ -20,7 +20,7 @@
 
 ## Project Location
 ```
-/mnt/storage/oAIo/          ← git repo root
+/mnt/windows-sata/oAIo/          ← git repo root
   backend/
     ollmo/main.py           ← oLLMo API (port 9000) — primary control plane
     oaudio/main.py          ← oAudio API (port 8002) — unified voice pipeline
@@ -83,7 +83,7 @@ The nervous system for a local AI workstation. Not an AI tool — the layer that
 | comfyui | comfyui (local) | 8188 | /mnt/oaio/models (NVMe) |
 | oaio | oaio (local) | 9000, 8002 | docker.sock + /sys/class/drm + /mnt/oaio |
 
-**Run:** `cd /mnt/storage/oAIo && docker compose up -d`
+**Run:** `cd /mnt/windows-sata/oAIo && docker compose up -d`
 
 ---
 

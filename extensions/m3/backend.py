@@ -51,8 +51,8 @@ _STATE_FILE = Path(__file__).parent / "m3.json"
 # Allowed base paths for training dataset references
 _ALLOWED_DATASET_PATHS = [
     "/mnt/oaio",
-    "/mnt/storage",
-    "/app/data",
+    "/mnt/oaio/staging",
+    "/mnt/windows-sata/oaio-hub",
 ]
 
 _VALID_METHODS = {"qlora", "lora", "full"}

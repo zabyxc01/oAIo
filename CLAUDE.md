@@ -23,7 +23,7 @@ oAIo is a local AI workstation orchestration platform. Not an AI tool — the la
 
 ## Project Location
 ```
-/mnt/storage/oAIo/
+/mnt/windows-sata/oAIo/
   backend/
     ollmo/main.py       <- oLLMo API port 9000 — primary control plane
     oaudio/main.py      <- oAudio API port 8002 — voice pipeline
@@ -73,7 +73,7 @@ oAIo is a local AI workstation orchestration platform. Not an AI tool — the la
 | styletts2 | 7870 | StyleTTS2 voice prototyping (Gradio UI) |
 | comfyui | 8188 | Image generation — Flux.1-dev |
 
-**Run:** `cd /mnt/storage/oAIo && docker compose up -d`
+**Run:** `cd /mnt/windows-sata/oAIo && docker compose up -d`
 **Rebuild:** `docker compose build oaio && docker compose up -d oaio`
 
 ---
