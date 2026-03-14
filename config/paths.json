@@ -16,5 +16,7 @@
   "styletts2-output": { "label": "StyleTTS2 Output",     "link": "/mnt/oaio/staging/styletts2-output",  "default_target": "/mnt/storage/staging/styletts2-output", "containers": ["styletts2"] },
   "swap":             { "label": "Swap / Staging",       "link": "/mnt/oaio/swap",          "default_target": "/mnt/windows-sata/oaio-hub/_staging",         "containers": [] },
   "staging":          { "label": "NVMe Staging",         "link": "/mnt/oaio/staging",       "default_target": "/mnt/storage/staging",                        "containers": [] },
-  "workflows":        { "label": "oAIo Workflows",       "link": "/mnt/oaio/workflows",     "default_target": "/mnt/windows-sata/oaio-hub/comfyui/workflows","containers": ["comfyui", "oaio"] }
+  "workflows":        { "label": "oAIo Workflows",       "link": "/mnt/oaio/workflows",     "default_target": "/mnt/windows-sata/oaio-hub/comfyui/workflows","containers": ["comfyui", "oaio"] },
+  "indextts-models":  { "label": "IndexTTS Models",      "link": "/mnt/oaio/indextts-models","default_target": "/mnt/windows-sata/oaio-hub/indextts/models",  "containers": ["indextts"] },
+  "indextts-output":  { "label": "IndexTTS Output",      "link": "/mnt/oaio/staging/indextts-output", "default_target": "/mnt/storage/staging/indextts-output", "containers": ["indextts"] }
 }

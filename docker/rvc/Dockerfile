@@ -4,4 +4,5 @@ FROM rvc AS base
 # Fix: upgrade numpy to 2.x and rebuild broken extensions (faiss, numba).
 RUN pip install --upgrade pip -q && \
     pip install 'numpy>=2.1,<2.3' 'faiss-cpu>=1.8' 'numba>=0.60' \
-    --force-reinstall --no-cache-dir -q
+    --force-reinstall --no-cache-dir -q && \
+    pip install 'gradio_client==0.2.7' --no-cache-dir -q

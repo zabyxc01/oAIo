@@ -44,6 +44,7 @@ services:
       - AUDIO_TTS_ENGINE=openai
       - AUDIO_TTS_OPENAI_API_BASE_URL=http://rvc:8001/v1
       - AUDIO_TTS_OPENAI_API_KEY=sk-oaio
+      - AUDIO_TTS_VOICE=af_heart
       # RAG — use Ollama embeddings instead of Docker-local model
       - RAG_EMBEDDING_ENGINE=ollama
       - RAG_EMBEDDING_MODEL=nomic-embed-text
@@ -137,6 +138,24 @@ services:
       - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
       - PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH:-gfx1100}
 
+  # ── Faster-Whisper STT (CPU — CTranslate2 doesn't support ROCm) ─────────────
+  faster-whisper:
+    build:
+      context: .
+      dockerfile: docker/faster-whisper/Dockerfile
+    container_name: faster-whisper
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "${OAIO_BIND:-127.0.0.1}:8003:8003"
+      - "${OAIO_BIND:-127.0.0.1}:7880:7880"
+    volumes:
+      - /mnt/oaio/hf-cache:/hf-cache
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
+      - WHISPER_DEVICE=cpu
+      - HF_HOME=/hf-cache
+
   # ── ComfyUI ──────────────────────────────────────────────────────────────────
   comfyui:
     build:
@@ -154,6 +173,32 @@ services:
       - /mnt/oaio/outputs:/ComfyUI/output
       - /mnt/oaio/inputs:/ComfyUI/input
       - /mnt/oaio/hf-cache:/hf-cache
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
+      - PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH:-gfx1100}
+      - HF_HOME=/hf-cache
+
+  # ── IndexTTS-2 (voice cloning, experimental) ─────────────────────────────────
+  indextts:
+    build:
+      context: .
+      dockerfile: docker/indextts/Dockerfile
+    container_name: indextts
+    restart: unless-stopped
+    networks: [oaio-net]
+    ports:
+      - "${OAIO_BIND:-127.0.0.1}:8004:8004"
+      - "${OAIO_BIND:-127.0.0.1}:7890:7890"
+    volumes:
+      - /mnt/oaio/indextts-models:/models
+      - /mnt/oaio/hf-cache:/hf-cache
+      - /mnt/oaio/ref-audio:/ref-audio
+      - /mnt/oaio/staging/indextts-output:/output
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -198,6 +243,7 @@ services:
       - RVC_PROXY=http://rvc:8001
       - RVC_GRADIO=http://rvc:7865
       - F5_TTS_URL=http://f5-tts:7860
+      - STT_URL=http://faster-whisper:8003
       - OUTPUT_BASE=/rvc/audio
       - OLLAMA_URL=http://ollama:11434
       - COMFYUI_USER_PATH=/comfyui-user

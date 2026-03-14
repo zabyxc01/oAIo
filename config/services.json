@@ -123,6 +123,20 @@
         }
       ]
     },
+    "faster-whisper": {
+      "container": "faster-whisper",
+      "port": 8003,
+      "vram_est_gb": 0,
+      "ram_est_gb": 2.0,
+      "priority": 12,
+      "limit_mode": "hard",
+      "auto_restore": false,
+      "group": "oAudio",
+      "memory_mode": "ram",
+      "boot_with_system": false,
+      "description": "Speech-to-text \u2014 faster-whisper CPU",
+      "capabilities": []
+    },
     "styletts2": {
       "container": "styletts2",
       "port": 7870,
@@ -137,6 +151,24 @@
         "voice-clone"
       ],
       "auto_restore": false
+    },
+    "indextts": {
+      "container": "indextts",
+      "port": 8004,
+      "vram_est_gb": 8.0,
+      "ram_est_gb": 4.0,
+      "priority": 45,
+      "limit_mode": "hard",
+      "auto_restore": false,
+      "group": "oAudio",
+      "memory_mode": "vram",
+      "bus_preference": "sata",
+      "boot_with_system": false,
+      "description": "IndexTTS-2 voice cloning \u2014 experimental",
+      "capabilities": [
+        "tts",
+        "voice-clone"
+      ]
     }
   },
   "vram_total_gb": 20,

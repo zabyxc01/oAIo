@@ -51,6 +51,55 @@
         "open-webui": 0
       },
       "boot_image": null
+    },
+    "waifu": {
+      "id": 4,
+      "name": "Waifu",
+      "description": "Desktop waifu pipeline \u2014 LLM + STT + TTS + voice conversion",
+      "services": [
+        "ollama",
+        "kokoro-tts",
+        "rvc",
+        "faster-whisper"
+      ],
+      "vram_budget_gb": 11,
+      "allocations": {
+        "ollama": 7.5,
+        "rvc": 3.0,
+        "kokoro-tts": 0,
+        "faster-whisper": 0
+      },
+      "boot_image": null
+    },
+    "indextts": {
+      "id": 5,
+      "name": "IndexTTS",
+      "description": "IndexTTS-2 voice cloning experimentation",
+      "services": [
+        "indextts"
+      ],
+      "vram_budget_gb": 8,
+      "allocations": {
+        "indextts": 8.0
+      },
+      "boot_image": null
+    },
+    "oaudio-optimized": {
+      "id": 6,
+      "name": "oAudio Optimized",
+      "description": "Desktop waifu pipeline \u2014 LLM + STT + IndexTTS (no Kokoro/RVC)",
+      "services": [
+        "ollama",
+        "faster-whisper",
+        "indextts"
+      ],
+      "vram_budget_gb": 16,
+      "allocations": {
+        "ollama": 7.5,
+        "faster-whisper": 0,
+        "indextts": 8.0
+      },
+      "boot_image": null
     }
   },
   "scratch_pad": {

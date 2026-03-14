@@ -63,28 +63,17 @@ KOKORO_URL  = os.environ.get("KOKORO_URL",  "http://localhost:8000")
 RVC_PROXY   = os.environ.get("RVC_PROXY",   "http://localhost:8001")
 RVC_GRADIO  = os.environ.get("RVC_GRADIO",  "http://rvc:7865")
 F5_TTS_URL  = os.environ.get("F5_TTS_URL",  "http://f5-tts:7860")
+STT_URL     = os.environ.get("STT_URL",     "http://faster-whisper:8003")
 
 OUTPUT_BASE = Path(os.environ.get("OUTPUT_BASE", "/rvc/audio"))
 PROXY_OUT   = OUTPUT_BASE / "proxy"
 WEBUI_OUT   = OUTPUT_BASE / "webui"
 CLONE_OUT   = OUTPUT_BASE / "clone"
 TEMP_OUT    = OUTPUT_BASE / "temp"
-HF_CACHE    = Path(os.environ.get("HF_HOME", "/hf-cache"))
-
-# Lazy-loaded Whisper model for ref_text auto-transcription
-_whisper_model = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Pre-load Whisper model at startup so first /clone isn't slow
-    global _whisper_model
-    try:
-        from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel("tiny", device="cpu",
-                                      download_root=str(HF_CACHE / "whisper"))
-    except Exception as e:
-        print(f"[oAudio] Whisper pre-load failed (will lazy-load): {e}")
     yield
 
 
@@ -126,20 +115,27 @@ for d in [PROXY_OUT, WEBUI_OUT, CLONE_OUT, TEMP_OUT]:
     d.mkdir(parents=True, exist_ok=True)
 
 
-def _transcribe(audio_bytes: bytes, filename: str) -> str:
-    """Auto-transcribe reference audio using faster-whisper (tiny model, CPU)."""
-    global _whisper_model
-    if _whisper_model is None:
-        from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel("tiny", device="cpu",
-                                      download_root=str(HF_CACHE / "whisper"))
-    tmp = TEMP_OUT / f"ref_{uuid.uuid4().hex}{_safe_suffix(filename)}"
-    tmp.write_bytes(audio_bytes)
-    try:
-        segments, _ = _whisper_model.transcribe(str(tmp), beam_size=1)
-        return " ".join(s.text.strip() for s in segments)
-    finally:
-        tmp.unlink(missing_ok=True)
+async def _transcribe_via_stt(audio_bytes: bytes, filename: str, language: str = "en") -> str:
+    """Proxy transcription to dedicated faster-whisper container."""
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        r = await client.post(
+            f"{STT_URL}/transcribe",
+            files={"file": (filename, audio_bytes, "audio/wav")},
+            data={"language": language},
+        )
+    r.raise_for_status()
+    return r.json().get("text", "").strip()
+
+
+@app.post("/transcribe")
+async def transcribe(
+    file: UploadFile = File(...),
+    language: str = Form(default="en"),
+):
+    """Audio file → faster-whisper STT → text (proxied to dedicated container)."""
+    audio_bytes = await file.read()
+    text = await _transcribe_via_stt(audio_bytes, file.filename or "audio.wav", language)
+    return {"text": text, "language": language}
 
 
 class SpeakRequest(BaseModel):
@@ -209,11 +205,7 @@ async def clone(
     audio_bytes = await ref_audio.read()
 
     if not ref_text.strip():
-        import asyncio
-        loop = asyncio.get_event_loop()
-        ref_text = await loop.run_in_executor(
-            None, _transcribe, audio_bytes, ref_audio.filename or "ref.wav"
-        )
+        ref_text = await _transcribe_via_stt(audio_bytes, ref_audio.filename or "ref.wav")
 
     async with httpx.AsyncClient(timeout=300.0) as client:
         # 1. Upload ref audio to F5-TTS
