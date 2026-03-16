@@ -227,6 +227,7 @@
             <div id="canvas-actions">
               <button class="grp-pill add-svc-btn" id="add-svc-btn">+ NODE</button>
               <button class="grp-pill add-mode-btn" id="add-mode-btn">+ MODE</button>
+              <button class="grp-pill" id="save-graph-mode-btn" title="Save current graph wiring as a deployable mode">SAVE GRAPH MODE</button>
               <button class="grp-pill scan-btn" id="scan-docker-btn">SCAN</button>
               <button class="grp-pill scan-btn" id="scan-api-btn">SCAN API</button>
               <button class="grp-pill scan-btn" id="auto-wire-btn">AUTO WIRE</button>
@@ -273,6 +274,15 @@
           <button id="config-paths-btn" class="mode-btn">PATHS</button>
         </div>
         <div id="config-node" class="config-view">
+          <!-- Plugins & Ports (populated from graph API) -->
+          <div class="config-col" id="config-plugins-col" style="display:none">
+            <div class="col-label">PLUGINS &amp; PORTS</div>
+            <div id="config-plugins-list"></div>
+          </div>
+          <div class="config-col" id="config-dirs-col" style="display:none">
+            <div class="col-label">AVAILABLE FILES</div>
+            <div id="config-dirs-list"></div>
+          </div>
           <div class="config-col">
             <div class="col-label">RESOURCES</div>
             <div class="config-field">
@@ -320,6 +330,15 @@
                 <input id="cfg-boot" type="checkbox" />
               </div>
               <div class="config-sub hidden" id="sub-boot"></div>
+            </div>
+            <div class="config-field">
+              <div class="config-row">
+                <label>Host</label>
+                <select id="cfg-host">
+                  <option value="local">local</option>
+                </select>
+              </div>
+              <div class="config-sub" id="sub-host" style="font-size:9px;color:var(--dim);padding:2px 8px">Deploy target for this node</div>
             </div>
           </div>
           <div id="node-routing-body"></div>

@@ -39,6 +39,39 @@ function _graphTypeToLG(dataType) {
   return _GRAPH_TYPE_MAP[dataType] || dataType || "any";
 }
 
+// Register port type colors so LiteGraph draws colored slots/wires
+const _PORT_TYPE_COLORS = {
+  "string":  "#4fc3f7",  // text — light blue
+  "audio":   "#66bb6a",  // audio — green
+  "image":   "#ab47bc",  // image — purple
+  "array":   "#ffa726",  // embedding — orange
+  "object":  "#78909c",  // json — blue-gray
+  "number":  "#ef5350",  // number — red
+  "video":   "#ec407a",  // video — pink
+  "any":     "#9e9e9e",  // any — gray
+};
+
+function _registerSlotColors() {
+  // LiteGraph 0.4 uses LiteGraph.registered_slot_in_types / out types for colors
+  // Set type colors on the LiteGraph global
+  if (typeof LiteGraph !== "undefined") {
+    for (const [type, color] of Object.entries(_PORT_TYPE_COLORS)) {
+      LiteGraph.LINK_TYPE_COLORS = LiteGraph.LINK_TYPE_COLORS || {};
+      LiteGraph.LINK_TYPE_COLORS[type] = color;
+
+      // Also register slot types if API available
+      if (LiteGraph.slot_types_default_in) {
+        LiteGraph.slot_types_default_in.push(type);
+      }
+      if (LiteGraph.slot_types_default_out) {
+        LiteGraph.slot_types_default_out.push(type);
+      }
+    }
+  }
+}
+
+_registerSlotColors();
+
 // Register service nodes from graph API, with fallback to static ports
 async function registerServiceNodes() {
   // Try graph discovery first
@@ -100,8 +133,20 @@ async function registerServiceNodes() {
     const shortLabel = def.name.charAt(0).toUpperCase() + def.name.slice(1);
 
     function NodeClass() {
-      io.in.forEach(([name, type]) => this.addInput(name, type));
-      io.out.forEach(([name, type]) => this.addOutput(name, type));
+      io.in.forEach(([name, type]) => {
+        const slot = this.addInput(name, type);
+        if (_PORT_TYPE_COLORS[type]) {
+          slot.color_on = _PORT_TYPE_COLORS[type];
+          slot.color_off = _PORT_TYPE_COLORS[type] + "88";
+        }
+      });
+      io.out.forEach(([name, type]) => {
+        const slot = this.addOutput(name, type);
+        if (_PORT_TYPE_COLORS[type]) {
+          slot.color_on = _PORT_TYPE_COLORS[type];
+          slot.color_off = _PORT_TYPE_COLORS[type] + "88";
+        }
+      });
       this.title   = shortLabel;
       const _cs = getComputedStyle(document.documentElement);
       const _grpKey = {"oLLM":"--grp-llm","oAudio":"--grp-audio","Render":"--grp-render","Control":"--grp-control"}[def.group];

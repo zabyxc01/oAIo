@@ -183,7 +183,7 @@ from core.graph import (
     validate_graph, add_node, remove_node, add_edge, remove_edge,
     graph_to_services_list, get_node_ports, get_edges_for_node,
 )
-from core.discovery import discover_all, discover_service, discover_ollama_models, generate_default_graph
+from core.discovery import discover_all, discover_service, discover_ollama_models, generate_default_graph, discover_service_dirs
 from core.router import route_manager
 
 OLLAMA_URL        = os.environ.get("OLLAMA_URL",        "http://localhost:11434")
@@ -2005,6 +2005,12 @@ def graph_discover_ollama_models():
     """Discover currently loaded Ollama models as individual plugins."""
     plugins = discover_ollama_models(OLLAMA_URL)
     return {"plugins": plugins, "count": len(plugins)}
+
+
+@app.get("/graph/discover/{service_name}/dirs", tags=["Graph"])
+def graph_discover_dirs(service_name: str):
+    """Discover files and directories available for a service (models, voices, weights, etc.)."""
+    return discover_service_dirs(service_name)
 
 
 @app.post("/graph/generate-default", tags=["Graph"])

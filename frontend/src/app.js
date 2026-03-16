@@ -1761,6 +1761,97 @@ document.getElementById("scan-results-close").addEventListener("click", () => {
 });
 
 // AUTO WIRE button
+// Save Graph Mode — create a mode from current graph wiring
+document.getElementById("save-graph-mode-btn")?.addEventListener("click", async () => {
+  if (!window._activeGraphId) {
+    if (typeof showAlert === "function") showAlert("warning", "No active graph — generate one first");
+    return;
+  }
+
+  const name = prompt("Mode name:");
+  if (!name || !name.trim()) return;
+
+  const budgetStr = prompt("VRAM budget (GB):", "11");
+  const budget = parseFloat(budgetStr) || 11;
+
+  // Get services from current LiteGraph nodes
+  const services = [];
+  if (graph) {
+    for (const node of (graph._nodes || [])) {
+      if (node._svc?.name) services.push(node._svc.name);
+    }
+  }
+
+  if (services.length === 0) {
+    if (typeof showAlert === "function") showAlert("warning", "No service nodes in graph");
+    return;
+  }
+
+  const modeKey = name.trim().toLowerCase().replace(/\s+/g, "-");
+
+  try {
+    // Create the mode
+    const r1 = await _fetch(`${OLLMO_API}/config/services`);
+    const allSvcs = await r1.json();
+    const allocations = {};
+    for (const s of services) {
+      allocations[s] = allSvcs[s]?.vram_est_gb || 0;
+    }
+
+    const modeBody = {
+      name: modeKey,
+      display_name: name.trim(),
+      description: `Graph mode — ${services.length} services`,
+      services: services,
+      vram_budget_gb: budget,
+      allocations: allocations,
+    };
+
+    const r2 = await _fetch(`${OLLMO_API}/modes`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(modeBody),
+    });
+
+    if (r2.ok) {
+      // Bind the graph to the mode
+      await _fetch(`${OLLMO_API}/modes/${modeKey}/bind-graph`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ graph_id: window._activeGraphId }),
+      });
+
+      if (typeof showAlert === "function") showAlert("success", `Mode "${name.trim()}" created with graph binding`);
+      // Refresh mode strip
+      if (typeof renderModeStrip === "function") renderModeStrip();
+      if (typeof fetchModesData === "function") await fetchModesData();
+    } else {
+      const err = await r2.json().catch(() => ({}));
+      if (typeof showAlert === "function") showAlert("warning", `Failed: ${err.error || err.detail || r2.status}`);
+    }
+  } catch (e) {
+    if (typeof showAlert === "function") showAlert("warning", `Error: ${e.message}`);
+  }
+});
+
+// Host selector change — update graph node host
+document.getElementById("cfg-host")?.addEventListener("change", async () => {
+  if (!selectedNode?._graphNode || !window._activeGraphId) return;
+  const newHost = document.getElementById("cfg-host").value;
+  selectedNode._graphNode.host = newHost;
+
+  // Save to graph state
+  try {
+    const gs = await (await _fetch(`${OLLMO_API}/graph/states/${window._activeGraphId}`)).json();
+    const nodeId = selectedNode._graphNode.id;
+    if (gs.nodes[nodeId]) {
+      gs.nodes[nodeId].host = newHost;
+      await _fetch(`${OLLMO_API}/graph/states/${window._activeGraphId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(gs),
+      });
+    }
+  } catch {}
+});
+
 document.getElementById("auto-wire-btn").addEventListener("click", async () => {
   if (!selectedNode) {
     alert("Select a service node first");
@@ -2000,8 +2091,100 @@ async function loadNodeConfig(node) {
   document.getElementById("cfg-bus").value      = bus;
   document.getElementById("cfg-limit").value    = limit;
   document.getElementById("cfg-boot").checked   = boot;
+
+  // Host selector
+  const hostSelect = document.getElementById("cfg-host");
+  if (hostSelect) {
+    const gNode = node._graphNode;
+    hostSelect.value = gNode?.host || "local";
+  }
+
   updateNodeSubs(localCfg.sub);
   loadModeAllocations(node);
+
+  // Load plugins & ports from graph node data
+  _loadNodePlugins(node);
+
+  // Load available files/directories
+  _loadNodeDirs(node);
+}
+
+// Port type color map for badges
+const _PORT_BADGE_COLORS = {
+  text: "#4fc3f7", audio: "#66bb6a", image: "#ab47bc",
+  embedding: "#ffa726", json: "#78909c", "file-path": "#8d6e63",
+  number: "#ef5350", video: "#ec407a", any: "#9e9e9e",
+};
+
+function _loadNodePlugins(node) {
+  const col = document.getElementById("config-plugins-col");
+  const list = document.getElementById("config-plugins-list");
+  if (!col || !list) return;
+
+  const gNode = node._graphNode;
+  if (!gNode || !gNode.plugins || gNode.plugins.length === 0) {
+    col.style.display = "none";
+    return;
+  }
+
+  col.style.display = "";
+  let html = "";
+  for (const plugin of gNode.plugins) {
+    html += `<div style="margin-bottom:6px">`;
+    html += `<div style="font-size:11px;font-weight:bold;color:var(--text)">${_esc(plugin.name)}</div>`;
+    html += `<div style="font-size:9px;color:var(--dim);margin-bottom:3px">${_esc(plugin.capability)}</div>`;
+    for (const port of (plugin.ports || [])) {
+      const color = _PORT_BADGE_COLORS[port.data_type] || "#9e9e9e";
+      const arrow = port.direction === "in" ? "&#9654;" : "&#9664;";
+      const dir = port.direction === "in" ? "IN" : "OUT";
+      html += `<div style="display:flex;align-items:center;gap:4px;padding:1px 0;font-size:10px">`;
+      html += `<span style="color:${color}">${arrow}</span>`;
+      html += `<span style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:8px;padding:0 6px;font-size:9px">${_esc(port.data_type)}</span>`;
+      html += `<span style="color:var(--text)">${_esc(port.name)}</span>`;
+      html += `<span style="color:var(--dim);font-size:8px">${dir}</span>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+  list.innerHTML = html;
+}
+
+async function _loadNodeDirs(node) {
+  const col = document.getElementById("config-dirs-col");
+  const list = document.getElementById("config-dirs-list");
+  if (!col || !list) return;
+
+  const svcName = node._svc?.name;
+  if (!svcName) { col.style.display = "none"; return; }
+
+  try {
+    const r = await _fetch(`${OLLMO_API}/graph/discover/${svcName}/dirs`);
+    if (!r.ok) { col.style.display = "none"; return; }
+    const data = await r.json();
+    const dirs = data.directories || {};
+    if (Object.keys(dirs).length === 0) { col.style.display = "none"; return; }
+
+    col.style.display = "";
+    let html = "";
+    for (const [dirName, files] of Object.entries(dirs)) {
+      html += `<div style="margin-bottom:4px">`;
+      html += `<div style="font-size:10px;font-weight:bold;color:var(--text)">${_esc(dirName)}</div>`;
+      if (files.length === 0) {
+        html += `<div style="font-size:9px;color:var(--dim);padding-left:8px">empty</div>`;
+      } else {
+        for (const f of files.slice(0, 10)) {
+          html += `<div style="font-size:9px;color:var(--dim);padding-left:8px">${_esc(f)}</div>`;
+        }
+        if (files.length > 10) {
+          html += `<div style="font-size:9px;color:var(--dim);padding-left:8px">... +${files.length - 10} more</div>`;
+        }
+      }
+      html += `</div>`;
+    }
+    list.innerHTML = html;
+  } catch {
+    col.style.display = "none";
+  }
 }
 
 async function loadModeAllocations(node) {

@@ -11,6 +11,7 @@ and can trigger live scans for fresh data.
 """
 import json
 import logging
+import os
 from pathlib import Path
 from .graph import make_node, make_plugin, make_port
 
@@ -272,6 +273,67 @@ def discover_ollama_models(ollama_url: str = "http://ollama:11434") -> list[dict
         log.warning("Failed to discover Ollama models: %s", e)
 
     return plugins
+
+
+def discover_service_dirs(service_name: str) -> dict:
+    """Discover files and directories available for a service.
+
+    Returns categorized listings of models, voices, weights, etc.
+    that the user can select/configure through the graph UI.
+    """
+    SYMLINK_ROOT = Path(os.environ.get("OAIO_SYMLINK_ROOT", "/mnt/oaio"))
+    result = {"service": service_name, "directories": {}}
+
+    if service_name == "comfyui":
+        models_dir = SYMLINK_ROOT / "models"
+        if models_dir.exists():
+            for subdir in sorted(models_dir.iterdir()):
+                if subdir.is_dir():
+                    files = [f.name for f in sorted(subdir.iterdir()) if f.is_file()]
+                    result["directories"][subdir.name] = files
+
+        workflows_dir = SYMLINK_ROOT / "workflows"
+        if workflows_dir.exists():
+            result["directories"]["workflows"] = [
+                f.name for f in sorted(workflows_dir.iterdir()) if f.suffix == ".json"
+            ]
+
+    elif service_name == "ollama":
+        manifests = SYMLINK_ROOT / "ollama" / "models" / "manifests" / "registry.ollama.ai" / "library"
+        if manifests.exists():
+            result["directories"]["models"] = [d.name for d in sorted(manifests.iterdir()) if d.is_dir()]
+
+    elif service_name == "rvc":
+        weights_dir = SYMLINK_ROOT / "rvc-weights"
+        if weights_dir.exists():
+            result["directories"]["weights"] = [f.name for f in sorted(weights_dir.iterdir()) if f.suffix == ".pth"]
+        indices_dir = SYMLINK_ROOT / "rvc-indices"
+        if indices_dir.exists():
+            result["directories"]["indices"] = [f.name for f in sorted(indices_dir.iterdir()) if f.suffix == ".index"]
+
+    elif service_name == "kokoro-tts":
+        voices_dir = SYMLINK_ROOT / "kokoro-voices"
+        if voices_dir.exists():
+            result["directories"]["voices"] = [f.name for f in sorted(voices_dir.iterdir()) if f.is_file()]
+
+    elif service_name == "indextts":
+        models_dir = SYMLINK_ROOT / "indextts-models"
+        if models_dir.exists():
+            result["directories"]["models"] = [f.name for f in sorted(models_dir.iterdir()) if f.is_file() or f.is_dir()]
+
+    elif service_name in ("f5-tts", "styletts2"):
+        ref_dir = SYMLINK_ROOT / "ref-audio"
+        if ref_dir.exists():
+            result["directories"]["ref_audio"] = [f.name for f in sorted(ref_dir.iterdir()) if f.is_file()]
+        hf_dir = SYMLINK_ROOT / "hf-cache"
+        if hf_dir.exists():
+            result["directories"]["hf_models"] = [d.name for d in sorted(hf_dir.iterdir()) if d.is_dir() and d.name.startswith("models--")]
+
+    elif service_name == "faster-whisper":
+        hf_dir = SYMLINK_ROOT / "hf-cache"  # whisper uses /dev/shm but check anyway
+        result["directories"]["models"] = ["tiny", "base", "small", "medium", "large-v2", "large-v3"]
+
+    return result
 
 
 def generate_default_graph(name: str = "Default") -> dict:
