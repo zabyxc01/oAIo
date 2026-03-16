@@ -16,7 +16,7 @@ services:
   ollama:
     image: ollama/ollama:rocm
     container_name: ollama
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:11434:11434"
@@ -32,7 +32,7 @@ services:
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:3000:8080"
@@ -59,7 +59,7 @@ services:
   kokoro-tts:
     image: kokoro-tts
     container_name: kokoro-tts
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:8000:8000"
@@ -73,7 +73,7 @@ services:
       dockerfile: docker/rvc/Dockerfile
     image: rvc:fixed
     container_name: rvc
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     command: ["/bin/bash", "-c", "python3 /rvc/infer-web.py --pycmd python3 --port 7865 --noautoopen & python3 /rvc/rvc_proxy.py"]
     ports:
@@ -102,7 +102,7 @@ services:
       dockerfile: docker/f5-tts/Dockerfile
     image: f5-tts:fixed
     container_name: f5-tts
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:7860:7860"
@@ -122,7 +122,7 @@ services:
       context: .
       dockerfile: docker/styletts2/Dockerfile
     container_name: styletts2
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:7870:7870"
@@ -144,7 +144,7 @@ services:
       context: .
       dockerfile: docker/faster-whisper/Dockerfile
     container_name: faster-whisper
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:8003:8003"
@@ -162,7 +162,7 @@ services:
       context: .
       dockerfile: docker/comfyui/Dockerfile
     container_name: comfyui
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:8188:8188"
@@ -189,7 +189,7 @@ services:
       context: .
       dockerfile: docker/indextts/Dockerfile
     container_name: indextts
-    restart: unless-stopped
+    restart: "no"
     networks: [oaio-net]
     ports:
       - "${OAIO_BIND:-127.0.0.1}:8004:8004"
