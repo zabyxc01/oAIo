@@ -52,7 +52,7 @@
           70
         ],
         "flags": {},
-        "order": 3,
+        "order": 1,
         "mode": 0,
         "inputs": [
           {
@@ -99,43 +99,6 @@
         "bgcolor": "rgb(30,20,4)"
       },
       {
-        "id": 5,
-        "type": "oAIo/faster-whisper",
-        "pos": [
-          320,
-          220
-        ],
-        "size": [
-          180,
-          70
-        ],
-        "flags": {},
-        "order": 4,
-        "mode": 0,
-        "inputs": [
-          {
-            "name": "audio",
-            "type": "audio",
-            "link": null,
-            "color_on": "#66bb6a",
-            "color_off": "#66bb6a88"
-          }
-        ],
-        "outputs": [
-          {
-            "name": "text",
-            "type": "string",
-            "links": null,
-            "color_on": "#4fc3f7",
-            "color_off": "#4fc3f788"
-          }
-        ],
-        "title": "Faster-whisper",
-        "properties": {},
-        "color": "#0a2a14",
-        "bgcolor": "rgb(30,20,4)"
-      },
-      {
         "id": 6,
         "type": "oAIo/fleet-job",
         "pos": [
@@ -147,7 +110,7 @@
           90
         ],
         "flags": {},
-        "order": 5,
+        "order": 3,
         "mode": 0,
         "inputs": [
           {
@@ -183,7 +146,7 @@
           110
         ],
         "flags": {},
-        "order": 6,
+        "order": 4,
         "mode": 0,
         "outputs": [
           {
@@ -197,7 +160,7 @@
             "links": null
           }
         ],
-        "title": "Fleet Node",
+        "title": "\u2014",
         "properties": {},
         "color": "hsl(0,0%,6.4%)",
         "bgcolor": "hsl(0,0%,3.9%)",
@@ -217,7 +180,7 @@
           70
         ],
         "flags": {},
-        "order": 7,
+        "order": 5,
         "mode": 0,
         "inputs": [
           {
@@ -275,7 +238,7 @@
           70
         ],
         "flags": {},
-        "order": 8,
+        "order": 6,
         "mode": 0,
         "inputs": [
           {
@@ -312,7 +275,7 @@
           90
         ],
         "flags": {},
-        "order": 9,
+        "order": 7,
         "mode": 0,
         "title": "model",
         "properties": {},
@@ -331,7 +294,7 @@
           "1": 58
         },
         "flags": {},
-        "order": 10,
+        "order": 8,
         "mode": 0,
         "outputs": [
           {
@@ -359,7 +322,7 @@
           "1": 82
         },
         "flags": {},
-        "order": 11,
+        "order": 9,
         "mode": 0,
         "inputs": [
           {
@@ -397,7 +360,7 @@
           80
         ],
         "flags": {},
-        "order": 12,
+        "order": 10,
         "mode": 0,
         "inputs": [
           {
@@ -425,7 +388,7 @@
           "1": 78
         },
         "flags": {},
-        "order": 13,
+        "order": 11,
         "mode": 0,
         "inputs": [
           {
@@ -466,7 +429,7 @@
           "1": 58
         },
         "flags": {},
-        "order": 14,
+        "order": 12,
         "mode": 0,
         "outputs": [
           {
@@ -497,7 +460,7 @@
           "1": 58
         },
         "flags": {},
-        "order": 15,
+        "order": 13,
         "mode": 0,
         "inputs": [
           {
@@ -534,7 +497,7 @@
           70
         ],
         "flags": {},
-        "order": 16,
+        "order": 14,
         "mode": 0,
         "inputs": [
           {
@@ -585,7 +548,7 @@
           70
         ],
         "flags": {},
-        "order": 17,
+        "order": 15,
         "mode": 0,
         "inputs": [
           {
@@ -622,7 +585,7 @@
           70
         ],
         "flags": {},
-        "order": 18,
+        "order": 16,
         "mode": 0,
         "inputs": [
           {
@@ -673,7 +636,7 @@
           70
         ],
         "flags": {},
-        "order": 19,
+        "order": 17,
         "mode": 0,
         "inputs": [
           {
@@ -731,7 +694,7 @@
           70
         ],
         "flags": {},
-        "order": 20,
+        "order": 18,
         "mode": 0,
         "title": "tts-voice",
         "properties": {},
@@ -750,7 +713,7 @@
           80
         ],
         "flags": {},
-        "order": 21,
+        "order": 19,
         "mode": 0,
         "title": "voice",
         "properties": {},
@@ -769,7 +732,7 @@
           90
         ],
         "flags": {},
-        "order": 22,
+        "order": 20,
         "mode": 0,
         "title": "workflow",
         "properties": {},
@@ -788,7 +751,7 @@
           120
         ],
         "flags": {},
-        "order": 1,
+        "order": 21,
         "mode": 0,
         "outputs": [
           {
@@ -816,7 +779,7 @@
           200
         ],
         "flags": {},
-        "order": 2,
+        "order": 22,
         "mode": 0,
         "title": "Debugger Log",
         "properties": {
@@ -824,6 +787,43 @@
         },
         "color": "#1a1a1a",
         "bgcolor": "#111111"
+      },
+      {
+        "id": 5,
+        "type": "oAIo/faster-whisper",
+        "pos": [
+          319,
+          220
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 2,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "audio",
+            "type": "audio",
+            "link": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "text",
+            "type": "string",
+            "links": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "title": "Faster-whisper",
+        "properties": {},
+        "color": "#0a2a14",
+        "bgcolor": "rgb(30,20,4)"
       }
     ],
     "links": [],

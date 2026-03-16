@@ -2,7 +2,7 @@
   "ollama": {
     "service": "ollama",
     "url": "http://ollama:11434",
-    "scan_time": "2026-03-08T10:26:01.824542Z",
+    "scan_time": "2026-03-14T03:59:24.186725Z",
     "reachable": true,
     "api_type": "openai_compat",
     "openapi_spec": null,
@@ -551,6 +551,345 @@
           "audio"
         ]
       ]
+    }
+  },
+  "indextts": {
+    "service": "indextts",
+    "url": "http://indextts:8004",
+    "scan_time": "2026-03-14T03:52:15.432284Z",
+    "reachable": true,
+    "api_type": "openapi",
+    "openapi_spec": {
+      "openapi": "3.1.0",
+      "info": {
+        "title": "IndexTTS-2",
+        "version": "0.1.0"
+      },
+      "paths": {
+        "/status": {
+          "get": {
+            "summary": "Status",
+            "operationId": "status_status_get",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/synthesize": {
+          "post": {
+            "summary": "Synthesize",
+            "operationId": "synthesize_synthesize_post",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Body_synthesize_synthesize_post"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "components": {
+        "schemas": {
+          "Body_synthesize_synthesize_post": {
+            "properties": {
+              "ref_audio": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream",
+                "title": "Ref Audio"
+              },
+              "text": {
+                "type": "string",
+                "title": "Text"
+              },
+              "emo_alpha": {
+                "type": "number",
+                "title": "Emo Alpha",
+                "default": 1.0
+              }
+            },
+            "type": "object",
+            "required": [
+              "ref_audio",
+              "text"
+            ],
+            "title": "Body_synthesize_synthesize_post"
+          },
+          "HTTPValidationError": {
+            "properties": {
+              "detail": {
+                "items": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "type": "array",
+                "title": "Detail"
+              }
+            },
+            "type": "object",
+            "title": "HTTPValidationError"
+          },
+          "ValidationError": {
+            "properties": {
+              "loc": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "array",
+                "title": "Location"
+              },
+              "msg": {
+                "type": "string",
+                "title": "Message"
+              },
+              "type": {
+                "type": "string",
+                "title": "Error Type"
+              },
+              "input": {
+                "title": "Input"
+              },
+              "ctx": {
+                "type": "object",
+                "title": "Context"
+              }
+            },
+            "type": "object",
+            "required": [
+              "loc",
+              "msg",
+              "type"
+            ],
+            "title": "ValidationError"
+          }
+        }
+      }
+    },
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/status",
+        "summary": "Status",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      },
+      {
+        "method": "POST",
+        "path": "/synthesize",
+        "summary": "Synthesize",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      }
+    ],
+    "capabilities": [],
+    "suggested_io": {
+      "inputs": [],
+      "outputs": []
+    }
+  },
+  "faster-whisper": {
+    "service": "faster-whisper",
+    "url": "http://faster-whisper:8003",
+    "scan_time": "2026-03-14T03:52:11.886215Z",
+    "reachable": true,
+    "api_type": "openapi",
+    "openapi_spec": {
+      "openapi": "3.1.0",
+      "info": {
+        "title": "faster-whisper STT",
+        "version": "0.1.0"
+      },
+      "paths": {
+        "/status": {
+          "get": {
+            "summary": "Status",
+            "operationId": "status_status_get",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/transcribe": {
+          "post": {
+            "summary": "Transcribe",
+            "operationId": "transcribe_transcribe_post",
+            "requestBody": {
+              "content": {
+                "multipart/form-data": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Body_transcribe_transcribe_post"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {}
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "components": {
+        "schemas": {
+          "Body_transcribe_transcribe_post": {
+            "properties": {
+              "file": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream",
+                "title": "File"
+              },
+              "language": {
+                "type": "string",
+                "title": "Language",
+                "default": "en"
+              }
+            },
+            "type": "object",
+            "required": [
+              "file"
+            ],
+            "title": "Body_transcribe_transcribe_post"
+          },
+          "HTTPValidationError": {
+            "properties": {
+              "detail": {
+                "items": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "type": "array",
+                "title": "Detail"
+              }
+            },
+            "type": "object",
+            "title": "HTTPValidationError"
+          },
+          "ValidationError": {
+            "properties": {
+              "loc": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "array",
+                "title": "Location"
+              },
+              "msg": {
+                "type": "string",
+                "title": "Message"
+              },
+              "type": {
+                "type": "string",
+                "title": "Error Type"
+              },
+              "input": {
+                "title": "Input"
+              },
+              "ctx": {
+                "type": "object",
+                "title": "Context"
+              }
+            },
+            "type": "object",
+            "required": [
+              "loc",
+              "msg",
+              "type"
+            ],
+            "title": "ValidationError"
+          }
+        }
+      }
+    },
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/status",
+        "summary": "Status",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      },
+      {
+        "method": "POST",
+        "path": "/transcribe",
+        "summary": "Transcribe",
+        "parameters": [],
+        "tags": [],
+        "source": "openapi"
+      }
+    ],
+    "capabilities": [],
+    "suggested_io": {
+      "inputs": [],
+      "outputs": []
     }
   }
 }
