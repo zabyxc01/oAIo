@@ -69,7 +69,8 @@
         "kokoro-tts": 0,
         "faster-whisper": 0
       },
-      "boot_image": null
+      "boot_image": null,
+      "graph_state": "gs_80775372"
     },
     "indextts": {
       "id": 5,

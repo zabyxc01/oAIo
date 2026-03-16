@@ -1,49 +1,14 @@
 {
   "graphData": {
-    "last_node_id": 6,
-    "last_link_id": 7,
+    "last_node_id": 23,
+    "last_link_id": 0,
     "nodes": [
       {
         "id": 1,
-        "type": "oAIo/ollama",
+        "type": "oAIo/comfyui",
         "pos": [
           60,
           60
-        ],
-        "size": [
-          180,
-          70
-        ],
-        "flags": {},
-        "order": 3,
-        "mode": 0,
-        "inputs": [
-          {
-            "name": "llm_req",
-            "type": "request",
-            "link": 1
-          }
-        ],
-        "outputs": [
-          {
-            "name": "llm_resp",
-            "type": "response",
-            "links": [
-              5
-            ]
-          }
-        ],
-        "title": "Ollama",
-        "properties": {},
-        "color": "#0d1a2f",
-        "bgcolor": "rgb(8, 20, 29)"
-      },
-      {
-        "id": 5,
-        "type": "oAIo/f5-tts",
-        "pos": [
-          60,
-          380
         ],
         "size": [
           180,
@@ -54,31 +19,91 @@
         "mode": 0,
         "inputs": [
           {
-            "name": "clone_req",
-            "type": "request",
-            "link": null
+            "name": "prompt",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
           }
         ],
         "outputs": [
           {
-            "name": "clone_audio",
+            "name": "image",
+            "type": "image",
+            "links": null,
+            "color_on": "#ab47bc",
+            "color_off": "#ab47bc88"
+          }
+        ],
+        "title": "Comfyui",
+        "properties": {},
+        "color": "#0d1a2f",
+        "bgcolor": "rgb(12,22,12)"
+      },
+      {
+        "id": 4,
+        "type": "oAIo/f5-tts",
+        "pos": [
+          60,
+          220
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 3,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          },
+          {
+            "name": "ref_audio",
             "type": "audio",
-            "links": [
-              4
-            ]
+            "link": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          },
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          },
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
           }
         ],
         "title": "F5-tts",
         "properties": {},
-        "color": "#252525",
-        "bgcolor": "hsl(0,0%,3.9%)"
+        "color": "#0d1a2f",
+        "bgcolor": "rgb(30,20,4)"
       },
       {
-        "id": 4,
-        "type": "oAIo/open-webui",
+        "id": 5,
+        "type": "oAIo/faster-whisper",
         "pos": [
           320,
-          60
+          220
         ],
         "size": [
           180,
@@ -89,231 +114,722 @@
         "mode": 0,
         "inputs": [
           {
-            "name": "llm_resp",
-            "type": "response",
-            "link": 5
-          },
-          {
-            "name": "tts_audio",
+            "name": "audio",
             "type": "audio",
-            "link": 6
-          },
-          {
-            "name": "image",
-            "type": "image",
-            "link": 7
+            "link": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
           }
         ],
         "outputs": [
           {
-            "name": "llm_req",
-            "type": "request",
-            "links": [
-              1
-            ]
-          },
-          {
-            "name": "tts_req",
-            "type": "request",
-            "links": null
-          },
-          {
-            "name": "imggen_req",
-            "type": "request",
-            "links": [
-              2
-            ]
+            "name": "text",
+            "type": "string",
+            "links": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
           }
         ],
-        "title": "Open-webui",
-        "properties": {},
-        "color": "#0d1a2f",
-        "bgcolor": "rgb(8, 20, 29)"
-      },
-      {
-        "id": 2,
-        "type": "oAIo/kokoro-tts",
-        "pos": [
-          65,
-          215
-        ],
-        "size": [
-          180,
-          70
-        ],
-        "flags": {},
-        "order": 1,
-        "mode": 0,
-        "inputs": [
-          {
-            "name": "tts_req",
-            "type": "request",
-            "link": null
-          }
-        ],
-        "outputs": [
-          {
-            "name": "raw_audio",
-            "type": "audio",
-            "links": [
-              3
-            ]
-          }
-        ],
-        "title": "Kokoro-tts",
-        "properties": {},
-        "color": "#0d1a2f",
-        "bgcolor": "rgb(31, 20, 5)"
-      },
-      {
-        "id": 3,
-        "type": "oAIo/rvc",
-        "pos": [
-          320,
-          219
-        ],
-        "size": [
-          180,
-          70
-        ],
-        "flags": {},
-        "order": 2,
-        "mode": 0,
-        "inputs": [
-          {
-            "name": "raw_audio",
-            "type": "audio",
-            "link": 3
-          },
-          {
-            "name": "clone_audio",
-            "type": "audio",
-            "link": 4
-          }
-        ],
-        "outputs": [
-          {
-            "name": "tts_audio",
-            "type": "audio",
-            "links": [
-              6
-            ]
-          }
-        ],
-        "title": "Rvc",
+        "title": "Faster-whisper",
         "properties": {},
         "color": "#0a2a14",
-        "bgcolor": "rgb(31, 20, 5)"
+        "bgcolor": "rgb(30,20,4)"
       },
       {
         "id": 6,
-        "type": "oAIo/comfyui",
+        "type": "oAIo/fleet-job",
         "pos": [
           580,
-          59
+          220
         ],
         "size": [
-          180,
-          70
+          220,
+          90
         ],
         "flags": {},
         "order": 5,
         "mode": 0,
         "inputs": [
           {
-            "name": "imggen_req",
-            "type": "request",
-            "link": 2
+            "name": "node",
+            "type": "string",
+            "link": null
           }
         ],
         "outputs": [
           {
-            "name": "image",
-            "type": "image",
-            "links": [
-              7
-            ]
+            "name": "result",
+            "type": "string",
+            "links": null
           }
         ],
-        "title": "Comfyui",
-        "properties": {},
-        "color": "#252525",
+        "title": "Fleet Job",
+        "properties": {
+          "job_type": "mode_activate",
+          "target": ""
+        },
+        "color": "hsl(0,0%,6.4%)",
         "bgcolor": "hsl(0,0%,3.9%)"
+      },
+      {
+        "id": 7,
+        "type": "oAIo/fleet-node",
+        "pos": [
+          60,
+          380
+        ],
+        "size": [
+          220,
+          110
+        ],
+        "flags": {},
+        "order": 6,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "status",
+            "type": "string",
+            "links": null
+          },
+          {
+            "name": "vram",
+            "type": "number",
+            "links": null
+          }
+        ],
+        "title": "Fleet Node",
+        "properties": {},
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "hsl(0,0%,3.9%)",
+        "_nodeId": null,
+        "_url": "",
+        "_name": "\u2014"
+      },
+      {
+        "id": 8,
+        "type": "oAIo/indextts",
+        "pos": [
+          320,
+          380
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 7,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          },
+          {
+            "name": "ref_audio",
+            "type": "audio",
+            "link": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          },
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          },
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          }
+        ],
+        "title": "Indextts",
+        "properties": {},
+        "color": "#0a2a14",
+        "bgcolor": "rgb(30,20,4)"
+      },
+      {
+        "id": 9,
+        "type": "oAIo/kokoro-tts",
+        "pos": [
+          580,
+          380
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 8,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          }
+        ],
+        "title": "Kokoro-tts",
+        "properties": {},
+        "color": "#0a2a14",
+        "bgcolor": "rgb(30,20,4)"
+      },
+      {
+        "id": 10,
+        "type": "oAIo/llm-model",
+        "pos": [
+          60,
+          540
+        ],
+        "size": [
+          200,
+          90
+        ],
+        "flags": {},
+        "order": 9,
+        "mode": 0,
+        "title": "model",
+        "properties": {},
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "hsl(0,0%,3.9%)"
+      },
+      {
+        "id": 11,
+        "type": "oAIo/m3-input",
+        "pos": [
+          320,
+          540
+        ],
+        "size": {
+          "0": 210,
+          "1": 58
+        },
+        "flags": {},
+        "order": 10,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "text",
+            "type": "string",
+            "links": null
+          }
+        ],
+        "title": "Pipeline Input",
+        "properties": {
+          "default_text": ""
+        },
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "rgba(34,197,94,0.12)"
+      },
+      {
+        "id": 12,
+        "type": "oAIo/m3-model",
+        "pos": [
+          580,
+          540
+        ],
+        "size": {
+          "0": 210,
+          "1": 82
+        },
+        "flags": {},
+        "order": 11,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "input",
+            "type": "string",
+            "link": null
+          }
+        ],
+        "outputs": [
+          {
+            "name": "output",
+            "type": "string",
+            "links": null
+          }
+        ],
+        "title": "Model",
+        "properties": {
+          "model": "",
+          "prompt_template": "{{input}}",
+          "temperature": 0.7,
+          "max_tokens": 2048
+        },
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "rgba(168,85,247,0.12)"
+      },
+      {
+        "id": 13,
+        "type": "oAIo/m3-output",
+        "pos": [
+          60,
+          700
+        ],
+        "size": [
+          160,
+          80
+        ],
+        "flags": {},
+        "order": 12,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "text",
+            "type": "string",
+            "link": null
+          }
+        ],
+        "title": "Pipeline Output",
+        "properties": {
+          "last_result": ""
+        },
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "rgba(249,115,22,0.12)"
+      },
+      {
+        "id": 14,
+        "type": "oAIo/m3-router",
+        "pos": [
+          320,
+          700
+        ],
+        "size": {
+          "0": 210,
+          "1": 78
+        },
+        "flags": {},
+        "order": 13,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "input",
+            "type": "string",
+            "link": null
+          }
+        ],
+        "outputs": [
+          {
+            "name": "match",
+            "type": "string",
+            "links": null
+          },
+          {
+            "name": "no_match",
+            "type": "string",
+            "links": null
+          }
+        ],
+        "title": "Router",
+        "properties": {
+          "condition": "contains",
+          "pattern": ""
+        },
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "rgba(6,182,212,0.12)"
+      },
+      {
+        "id": 15,
+        "type": "oAIo/m3-training",
+        "pos": [
+          580,
+          700
+        ],
+        "size": {
+          "0": 210,
+          "1": 58
+        },
+        "flags": {},
+        "order": 14,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "adapter",
+            "type": "string",
+            "links": null
+          }
+        ],
+        "title": "Training Job",
+        "properties": {
+          "job_id": "",
+          "base_model": "",
+          "method": "qlora",
+          "status": "idle"
+        },
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "rgba(124,58,237,0.12)"
+      },
+      {
+        "id": 16,
+        "type": "oAIo/m3-transform",
+        "pos": [
+          60,
+          860
+        ],
+        "size": {
+          "0": 210,
+          "1": 58
+        },
+        "flags": {},
+        "order": 15,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "input",
+            "type": "string",
+            "link": null
+          }
+        ],
+        "outputs": [
+          {
+            "name": "output",
+            "type": "string",
+            "links": null
+          }
+        ],
+        "title": "Transform",
+        "properties": {
+          "mode": "template",
+          "template": "{{input}}",
+          "append_text": ""
+        },
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "rgba(245,158,11,0.12)"
+      },
+      {
+        "id": 17,
+        "type": "oAIo/ollama",
+        "pos": [
+          320,
+          860
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 16,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "prompt",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          },
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "response",
+            "type": "string",
+            "links": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          },
+          {
+            "name": "embedding",
+            "type": "array",
+            "links": null,
+            "color_on": "#ffa726",
+            "color_off": "#ffa72688"
+          }
+        ],
+        "title": "Ollama",
+        "properties": {},
+        "color": "#0a2a14",
+        "bgcolor": "rgb(7,19,29)"
+      },
+      {
+        "id": 18,
+        "type": "oAIo/open-webui",
+        "pos": [
+          580,
+          860
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 17,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "prompt",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "response",
+            "type": "string",
+            "links": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "title": "Open-webui",
+        "properties": {},
+        "color": "#0a2a14",
+        "bgcolor": "rgb(7,19,29)"
+      },
+      {
+        "id": 19,
+        "type": "oAIo/rvc",
+        "pos": [
+          60,
+          1020
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 18,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "audio",
+            "type": "audio",
+            "link": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          },
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          },
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          }
+        ],
+        "title": "Rvc",
+        "properties": {},
+        "color": "#0a2a14",
+        "bgcolor": "rgb(30,20,4)"
+      },
+      {
+        "id": 20,
+        "type": "oAIo/styletts2",
+        "pos": [
+          320,
+          1020
+        ],
+        "size": [
+          180,
+          70
+        ],
+        "flags": {},
+        "order": 19,
+        "mode": 0,
+        "inputs": [
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          },
+          {
+            "name": "text",
+            "type": "string",
+            "link": null,
+            "color_on": "#4fc3f7",
+            "color_off": "#4fc3f788"
+          },
+          {
+            "name": "ref_audio",
+            "type": "audio",
+            "link": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          },
+          {
+            "name": "audio",
+            "type": "audio",
+            "links": null,
+            "color_on": "#66bb6a",
+            "color_off": "#66bb6a88"
+          }
+        ],
+        "title": "Styletts2",
+        "properties": {},
+        "color": "#0d1a2f",
+        "bgcolor": "rgb(30,20,4)"
+      },
+      {
+        "id": 21,
+        "type": "oAIo/tts-voice",
+        "pos": [
+          580,
+          1020
+        ],
+        "size": [
+          160,
+          70
+        ],
+        "flags": {},
+        "order": 20,
+        "mode": 0,
+        "title": "tts-voice",
+        "properties": {},
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "hsl(0,0%,3.9%)"
+      },
+      {
+        "id": 22,
+        "type": "oAIo/voice-model",
+        "pos": [
+          60,
+          1180
+        ],
+        "size": [
+          180,
+          80
+        ],
+        "flags": {},
+        "order": 21,
+        "mode": 0,
+        "title": "voice",
+        "properties": {},
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "hsl(0,0%,3.9%)"
+      },
+      {
+        "id": 23,
+        "type": "oAIo/workflow",
+        "pos": [
+          320,
+          1180
+        ],
+        "size": [
+          210,
+          90
+        ],
+        "flags": {},
+        "order": 22,
+        "mode": 0,
+        "title": "workflow",
+        "properties": {},
+        "color": "hsl(0,0%,6.4%)",
+        "bgcolor": "hsl(0,0%,3.9%)"
+      },
+      {
+        "id": 2,
+        "type": "oAIo/debugger-errors",
+        "pos": [
+          300,
+          28
+        ],
+        "size": [
+          280,
+          120
+        ],
+        "flags": {},
+        "order": 1,
+        "mode": 0,
+        "outputs": [
+          {
+            "name": "error_count",
+            "type": "number",
+            "links": null
+          }
+        ],
+        "title": "Debugger Errors",
+        "properties": {
+          "container": "oaio"
+        },
+        "color": "#2e1a1a",
+        "bgcolor": "#221212"
+      },
+      {
+        "id": 3,
+        "type": "oAIo/debugger-log",
+        "pos": [
+          1090,
+          68
+        ],
+        "size": [
+          320,
+          200
+        ],
+        "flags": {},
+        "order": 2,
+        "mode": 0,
+        "title": "Debugger Log",
+        "properties": {
+          "container": "oaio"
+        },
+        "color": "#1a1a1a",
+        "bgcolor": "#111111"
       }
     ],
-    "links": [
-      [
-        1,
-        4,
-        0,
-        1,
-        0,
-        "request"
-      ],
-      [
-        2,
-        4,
-        2,
-        6,
-        0,
-        "request"
-      ],
-      [
-        3,
-        2,
-        0,
-        3,
-        0,
-        "audio"
-      ],
-      [
-        4,
-        5,
-        0,
-        3,
-        1,
-        "audio"
-      ],
-      [
-        5,
-        1,
-        0,
-        4,
-        0,
-        "response"
-      ],
-      [
-        6,
-        3,
-        0,
-        4,
-        1,
-        "audio"
-      ],
-      [
-        7,
-        6,
-        0,
-        4,
-        2,
-        "image"
-      ]
-    ],
+    "links": [],
     "groups": [],
     "config": {},
     "extra": {},
     "version": 0.4
-  },
-  "nodeConfigs": {
-    "Ollama": {
-      "memory": "vram",
-      "priority": "1",
-      "bus": "nvme",
-      "limit": "soft",
-      "boot": false,
-      "sub": {
-        "vramAlloc": "4"
-      }
-    }
   }
 }
