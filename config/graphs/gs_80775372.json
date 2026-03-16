@@ -1,0 +1,535 @@
+{
+  "id": "gs_80775372",
+  "name": "System Default",
+  "created_at": "2026-03-16T00:38:31.271610+00:00",
+  "updated_at": "2026-03-16T00:39:01.545829+00:00",
+  "nodes": {
+    "ollama": {
+      "id": "ollama",
+      "name": "LLM backend",
+      "host": "local",
+      "service": "ollama",
+      "plugins": [
+        {
+          "id": "ollama:chat",
+          "name": "LLM Chat",
+          "capability": "chat",
+          "ports": [
+            {
+              "id": "ollama:chat:prompt_in",
+              "name": "prompt",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "ollama:chat:response_out",
+              "name": "response",
+              "direction": "out",
+              "data_type": "text",
+              "endpoint": null
+            }
+          ]
+        },
+        {
+          "id": "ollama:embeddings",
+          "name": "Embeddings",
+          "capability": "embeddings",
+          "ports": [
+            {
+              "id": "ollama:embeddings:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "ollama:embeddings:embedding_out",
+              "name": "embedding",
+              "direction": "out",
+              "data_type": "embedding",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "ollama",
+        "port": 11434,
+        "vram_est_gb": 7.5,
+        "ram_est_gb": 7.2,
+        "priority": 5,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oLLM",
+        "memory_mode": "vram",
+        "boot_with_system": false,
+        "description": "LLM backend"
+      }
+    },
+    "open-webui": {
+      "id": "open-webui",
+      "name": "LLM chat UI",
+      "host": "local",
+      "service": "open-webui",
+      "plugins": [
+        {
+          "id": "open-webui:chat",
+          "name": "Open WebUI Chat",
+          "capability": "chat",
+          "ports": [
+            {
+              "id": "open-webui:chat:prompt_in",
+              "name": "prompt",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "open-webui:chat:response_out",
+              "name": "response",
+              "direction": "out",
+              "data_type": "text",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "open-webui",
+        "port": 3000,
+        "vram_est_gb": 0,
+        "ram_est_gb": 1.3,
+        "priority": 30,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oLLM",
+        "memory_mode": "ram",
+        "boot_with_system": false,
+        "description": "LLM chat UI"
+      }
+    },
+    "kokoro-tts": {
+      "id": "kokoro-tts",
+      "name": "TTS base voice \u2014 Kokoro ONNX",
+      "host": "local",
+      "service": "kokoro-tts",
+      "plugins": [
+        {
+          "id": "kokoro-tts:tts",
+          "name": "Kokoro TTS",
+          "capability": "tts",
+          "ports": [
+            {
+              "id": "kokoro-tts:tts:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "kokoro-tts:tts:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "kokoro-tts",
+        "port": 8000,
+        "vram_est_gb": 0,
+        "ram_est_gb": 0.8,
+        "priority": 10,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oAudio",
+        "memory_mode": "ram",
+        "boot_with_system": false,
+        "description": "TTS base voice \u2014 Kokoro ONNX"
+      }
+    },
+    "rvc": {
+      "id": "rvc",
+      "name": "Voice conversion + proxy",
+      "host": "local",
+      "service": "rvc",
+      "plugins": [
+        {
+          "id": "rvc:voice_conversion",
+          "name": "RVC Voice Conversion",
+          "capability": "voice_conversion",
+          "ports": [
+            {
+              "id": "rvc:voice_conversion:audio_in",
+              "name": "audio",
+              "direction": "in",
+              "data_type": "audio",
+              "endpoint": null
+            },
+            {
+              "id": "rvc:voice_conversion:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        },
+        {
+          "id": "rvc:tts",
+          "name": "RVC TTS Proxy",
+          "capability": "tts",
+          "ports": [
+            {
+              "id": "rvc:tts:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "rvc:tts:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "rvc",
+        "port": 8001,
+        "vram_est_gb": 3.0,
+        "ram_est_gb": 6.0,
+        "priority": 15,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oAudio",
+        "memory_mode": "vram",
+        "boot_with_system": false,
+        "description": "Voice conversion + proxy"
+      }
+    },
+    "f5-tts": {
+      "id": "f5-tts",
+      "name": "Voice cloning",
+      "host": "local",
+      "service": "f5-tts",
+      "plugins": [
+        {
+          "id": "f5-tts:voice_clone",
+          "name": "F5 Voice Cloning",
+          "capability": "voice_clone",
+          "ports": [
+            {
+              "id": "f5-tts:voice_clone:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "f5-tts:voice_clone:ref_audio_in",
+              "name": "ref_audio",
+              "direction": "in",
+              "data_type": "audio",
+              "endpoint": null
+            },
+            {
+              "id": "f5-tts:voice_clone:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        },
+        {
+          "id": "f5-tts:tts",
+          "name": "F5 TTS",
+          "capability": "tts",
+          "ports": [
+            {
+              "id": "f5-tts:tts:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "f5-tts:tts:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "f5-tts",
+        "port": 7860,
+        "vram_est_gb": 2.0,
+        "ram_est_gb": 1.4,
+        "priority": 40,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oAudio",
+        "memory_mode": "vram",
+        "boot_with_system": false,
+        "description": "Voice cloning"
+      }
+    },
+    "comfyui": {
+      "id": "comfyui",
+      "name": "Image generation \u2014 Flux.1-dev",
+      "host": "local",
+      "service": "comfyui",
+      "plugins": [
+        {
+          "id": "comfyui:image_gen",
+          "name": "ComfyUI Image Gen",
+          "capability": "image_gen",
+          "ports": [
+            {
+              "id": "comfyui:image_gen:prompt_in",
+              "name": "prompt",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "comfyui:image_gen:image_out",
+              "name": "image",
+              "direction": "out",
+              "data_type": "image",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "comfyui",
+        "port": 8188,
+        "vram_est_gb": 12.0,
+        "ram_est_gb": 4.0,
+        "priority": 25,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "Render",
+        "memory_mode": "vram",
+        "boot_with_system": false,
+        "description": "Image generation \u2014 Flux.1-dev"
+      }
+    },
+    "faster-whisper": {
+      "id": "faster-whisper",
+      "name": "Speech-to-text \u2014 faster-whisper CPU",
+      "host": "local",
+      "service": "faster-whisper",
+      "plugins": [
+        {
+          "id": "faster-whisper:stt",
+          "name": "Speech-to-Text",
+          "capability": "stt",
+          "ports": [
+            {
+              "id": "faster-whisper:stt:audio_in",
+              "name": "audio",
+              "direction": "in",
+              "data_type": "audio",
+              "endpoint": null
+            },
+            {
+              "id": "faster-whisper:stt:text_out",
+              "name": "text",
+              "direction": "out",
+              "data_type": "text",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "faster-whisper",
+        "port": 8003,
+        "vram_est_gb": 0,
+        "ram_est_gb": 2.0,
+        "priority": 12,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oAudio",
+        "memory_mode": "ram",
+        "boot_with_system": false,
+        "description": "Speech-to-text \u2014 faster-whisper CPU"
+      }
+    },
+    "styletts2": {
+      "id": "styletts2",
+      "name": "Multi-speaker TTS + voice cloning via reference audio",
+      "host": "local",
+      "service": "styletts2",
+      "plugins": [
+        {
+          "id": "styletts2:tts",
+          "name": "StyleTTS2",
+          "capability": "tts",
+          "ports": [
+            {
+              "id": "styletts2:tts:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "styletts2:tts:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        },
+        {
+          "id": "styletts2:voice_clone",
+          "name": "StyleTTS2 Voice Clone",
+          "capability": "voice_clone",
+          "ports": [
+            {
+              "id": "styletts2:voice_clone:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "styletts2:voice_clone:ref_audio_in",
+              "name": "ref_audio",
+              "direction": "in",
+              "data_type": "audio",
+              "endpoint": null
+            },
+            {
+              "id": "styletts2:voice_clone:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "styletts2",
+        "port": 7870,
+        "vram_est_gb": 1.5,
+        "ram_est_gb": 2.0,
+        "priority": 35,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oAudio",
+        "memory_mode": "vram",
+        "boot_with_system": false,
+        "description": "Multi-speaker TTS + voice cloning via reference audio"
+      }
+    },
+    "indextts": {
+      "id": "indextts",
+      "name": "IndexTTS-2 voice cloning \u2014 experimental",
+      "host": "local",
+      "service": "indextts",
+      "plugins": [
+        {
+          "id": "indextts:voice_clone",
+          "name": "IndexTTS Voice Clone",
+          "capability": "voice_clone",
+          "ports": [
+            {
+              "id": "indextts:voice_clone:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "indextts:voice_clone:ref_audio_in",
+              "name": "ref_audio",
+              "direction": "in",
+              "data_type": "audio",
+              "endpoint": null
+            },
+            {
+              "id": "indextts:voice_clone:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        },
+        {
+          "id": "indextts:tts",
+          "name": "IndexTTS TTS",
+          "capability": "tts",
+          "ports": [
+            {
+              "id": "indextts:tts:text_in",
+              "name": "text",
+              "direction": "in",
+              "data_type": "text",
+              "endpoint": null
+            },
+            {
+              "id": "indextts:tts:audio_out",
+              "name": "audio",
+              "direction": "out",
+              "data_type": "audio",
+              "endpoint": null
+            }
+          ]
+        }
+      ],
+      "meta": {
+        "container": "indextts",
+        "port": 8004,
+        "vram_est_gb": 8.0,
+        "ram_est_gb": 4.0,
+        "priority": 45,
+        "limit_mode": "hard",
+        "auto_restore": false,
+        "group": "oAudio",
+        "memory_mode": "vram",
+        "boot_with_system": false,
+        "description": "IndexTTS-2 voice cloning \u2014 experimental"
+      }
+    }
+  },
+  "edges": {
+    "e_c7e942de": {
+      "id": "e_c7e942de",
+      "source_port": "faster-whisper:stt:text_out",
+      "target_port": "ollama:chat:prompt_in",
+      "sync_mode": "auto",
+      "transform": null,
+      "data_format": null
+    },
+    "e_36e065c4": {
+      "id": "e_36e065c4",
+      "source_port": "ollama:chat:response_out",
+      "target_port": "indextts:tts:text_in",
+      "sync_mode": "auto",
+      "transform": null,
+      "data_format": null
+    }
+  },
+  "litegraph": {
+    "positions": {},
+    "groups": [],
+    "config": {}
+  }
+}

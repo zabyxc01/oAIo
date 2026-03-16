@@ -178,6 +178,13 @@ import core.enforcer as _enforcer
 from core import ram_tier
 from core.extensions import load_all as _load_extensions, list_all as _list_extensions, \
     set_enabled as _ext_set_enabled, EXTENSIONS_DIR
+from core.graph import (
+    make_graph, make_edge, save_graph, load_graph, list_graphs, delete_graph,
+    validate_graph, add_node, remove_node, add_edge, remove_edge,
+    graph_to_services_list, get_node_ports, get_edges_for_node,
+)
+from core.discovery import discover_all, discover_service, discover_ollama_models, generate_default_graph
+from core.router import route_manager
 
 OLLAMA_URL        = os.environ.get("OLLAMA_URL",        "http://localhost:11434")
 COMFYUI_USER_PATH = Path(os.environ.get("COMFYUI_USER_PATH", str(Path.home() / "ComfyUI" / "user")))
@@ -1874,6 +1881,175 @@ async def enforcement_set_mode(body: dict):
 def enforcement_get_mode():
     cfg = json.loads(SERVICES_CFG_FILE.read_text())
     return {"enforcement_mode": cfg.get("enforcement_mode", "estimated")}
+
+
+# ── Graph Engine API ─────────────────────────────────────────────────────────
+
+@app.get("/graph/states", tags=["Graph"])
+def graph_list_states():
+    """List all saved graph states."""
+    return list_graphs()
+
+
+@app.post("/graph/states", tags=["Graph"])
+async def graph_create_state(body: dict):
+    """Create a new empty graph state."""
+    name = body.get("name", "Untitled")
+    graph = make_graph(name=name)
+    save_graph(graph)
+    return graph
+
+
+@app.get("/graph/states/{graph_id}", tags=["Graph"])
+def graph_get_state(graph_id: str):
+    """Get a full graph state by ID."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    return graph
+
+
+@app.put("/graph/states/{graph_id}", tags=["Graph"])
+async def graph_update_state(graph_id: str, body: dict):
+    """Update a graph state (full replace)."""
+    existing = load_graph(graph_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    body["id"] = graph_id
+    body["created_at"] = existing.get("created_at", "")
+    save_graph(body)
+    return body
+
+
+@app.delete("/graph/states/{graph_id}", tags=["Graph"])
+async def graph_delete_state(graph_id: str):
+    """Delete a graph state."""
+    if delete_graph(graph_id):
+        return {"deleted": graph_id}
+    raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+
+
+@app.post("/graph/discover", tags=["Graph"])
+def graph_discover():
+    """Run auto-discovery on all registered services.
+    Returns proposed nodes with plugins and typed ports.
+    """
+    nodes = discover_all()
+    return {"nodes": nodes, "count": len(nodes)}
+
+
+@app.post("/graph/discover/{service_name}", tags=["Graph"])
+def graph_discover_service(service_name: str):
+    """Discover a single service."""
+    node = discover_service(service_name)
+    if not node:
+        raise HTTPException(status_code=404, detail=f"Service '{service_name}' not found")
+    return node
+
+
+@app.post("/graph/discover/ollama/models", tags=["Graph"])
+def graph_discover_ollama_models():
+    """Discover currently loaded Ollama models as individual plugins."""
+    plugins = discover_ollama_models(OLLAMA_URL)
+    return {"plugins": plugins, "count": len(plugins)}
+
+
+@app.post("/graph/generate-default", tags=["Graph"])
+async def graph_generate_default(body: dict = None):
+    """Generate a complete graph from current services config and scans.
+    Non-destructive — creates a new graph state without modifying existing config.
+    """
+    name = (body or {}).get("name", "Default")
+    graph = generate_default_graph(name=name)
+    save_graph(graph)
+    return graph
+
+
+@app.get("/graph/nodes/{graph_id}", tags=["Graph"])
+def graph_get_nodes(graph_id: str):
+    """Get all nodes in a graph."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    return graph.get("nodes", {})
+
+
+@app.post("/graph/nodes/{graph_id}", tags=["Graph"])
+async def graph_add_node(graph_id: str, body: dict):
+    """Add a node to a graph."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    add_node(graph, body)
+    save_graph(graph)
+    return {"added": body.get("id")}
+
+
+@app.delete("/graph/nodes/{graph_id}/{node_id}", tags=["Graph"])
+async def graph_remove_node(graph_id: str, node_id: str):
+    """Remove a node and all its edges from a graph."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    remove_node(graph, node_id)
+    save_graph(graph)
+    return {"removed": node_id}
+
+
+@app.get("/graph/edges/{graph_id}", tags=["Graph"])
+def graph_get_edges(graph_id: str):
+    """Get all edges in a graph."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    return graph.get("edges", {})
+
+
+@app.post("/graph/edges/{graph_id}", tags=["Graph"])
+async def graph_add_edge(graph_id: str, body: dict):
+    """Add an edge to a graph. Validates port type compatibility."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+
+    edge = make_edge(
+        source_port_id=body.get("source_port", ""),
+        target_port_id=body.get("target_port", ""),
+        sync_mode=body.get("sync_mode", "on-demand"),
+        data_format=body.get("data_format"),
+    )
+    graph, errors = add_edge(graph, edge)
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+    save_graph(graph)
+    return edge
+
+
+@app.delete("/graph/edges/{graph_id}/{edge_id}", tags=["Graph"])
+async def graph_remove_edge(graph_id: str, edge_id: str):
+    """Remove an edge from a graph."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    remove_edge(graph, edge_id)
+    save_graph(graph)
+    return {"removed": edge_id}
+
+
+@app.post("/graph/validate/{graph_id}", tags=["Graph"])
+def graph_validate(graph_id: str):
+    """Validate a graph state. Returns errors and warnings."""
+    graph = load_graph(graph_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    errors = validate_graph(graph)
+    return {"valid": len(errors) == 0, "errors": errors}
+
+
+@app.get("/graph/router/status", tags=["Graph"])
+def graph_router_status():
+    """Get router status — queue depths, stats, active graph."""
+    return route_manager.get_status()
 
 
 @app.post("/modes/{name}/reset", tags=["Modes"])
