@@ -1661,21 +1661,26 @@
   <!-- Add Service Modal -->
   <div id="add-svc-modal" class="modal hidden">
     <div class="modal-content">
-      <div class="modal-header">ADD SERVICE</div>
+      <div class="modal-header">ADD NODE</div>
       <div class="modal-body">
-        <label>Name<input id="svc-name" type="text" placeholder="my-service" /></label>
-        <label>Container<input id="svc-container" type="text" placeholder="docker container name" /></label>
-        <label>Port<input id="svc-port" type="number" value="0" min="0" /></label>
-        <label>Group
-          <select id="svc-group">
-            <option value="oLLM">oLLM</option>
-            <option value="oAudio">oAudio</option>
-            <option value="Render">Render</option>
-            <option value="Other" selected>Other</option>
-          </select>
-        </label>
-        <label>VRAM Est (GB)<input id="svc-vram" type="number" value="0" min="0" step="0.5" /></label>
-        <label>Description<input id="svc-desc" type="text" placeholder="optional" /></label>
+        <!-- Discovery list: shown first -->
+        <div id="svc-discover-list" style="max-height:300px;overflow-y:auto;border:1px solid rgba(255,255,255,0.1);border-radius:6px;margin-bottom:8px"></div>
+        <!-- Manual form: shown when user picks external/custom -->
+        <div id="svc-form-section" style="display:none">
+          <label>Name<input id="svc-name" type="text" placeholder="my-service" /></label>
+          <label>Container<input id="svc-container" type="text" placeholder="docker container name (optional for external)" /></label>
+          <label>Port<input id="svc-port" type="number" value="0" min="0" /></label>
+          <label>Group
+            <select id="svc-group">
+              <option value="oLLM">oLLM</option>
+              <option value="oAudio">oAudio</option>
+              <option value="Render">Render</option>
+              <option value="Other" selected>Other</option>
+            </select>
+          </label>
+          <label>VRAM Est (GB)<input id="svc-vram" type="number" value="0" min="0" step="0.5" /></label>
+          <label>Description<input id="svc-desc" type="text" placeholder="optional" /></label>
+        </div>
       </div>
       <div class="modal-footer">
         <button id="svc-cancel" class="mode-btn">CANCEL</button>

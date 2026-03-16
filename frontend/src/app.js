@@ -1365,7 +1365,97 @@ document.getElementById("node-canvas").addEventListener("contextmenu", e => {
 });
 
 // --- Add Service modal ---
-document.getElementById("add-svc-btn").addEventListener("click", () => {
+document.getElementById("add-svc-btn").addEventListener("click", async () => {
+  // Populate the modal with discovered + predefined options
+  const dropdown = document.getElementById("svc-discover-list");
+  if (dropdown) {
+    dropdown.innerHTML = '<div style="color:var(--dim);font-size:9px;padding:4px">Loading...</div>';
+    try {
+      // Get already-on-canvas service names
+      const onCanvas = new Set();
+      if (graph) {
+        for (const n of (graph._nodes || [])) {
+          if (n._svc?.name) onCanvas.add(n._svc.name);
+        }
+      }
+
+      // Discover available services
+      const r = await _fetch(`${OLLMO_API}/graph/discover`, { method: "POST" });
+      const data = await r.json();
+      const discovered = Object.entries(data.nodes || {}).filter(([name]) => !onCanvas.has(name));
+
+      let html = '';
+      if (discovered.length > 0) {
+        html += '<div style="font-size:9px;color:var(--dim);padding:2px 4px">DISCOVERED SERVICES</div>';
+        for (const [name, node] of discovered) {
+          const plugins = node.plugins.length;
+          const ports = node.plugins.reduce((s, p) => s + p.ports.length, 0);
+          html += `<div class="svc-discover-item" data-name="${_esc(name)}" data-type="discovered" style="padding:4px 8px;cursor:pointer;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.05)">`;
+          html += `<b>${_esc(name)}</b> <span style="color:var(--dim)">${plugins} plugins, ${ports} ports</span>`;
+          html += `</div>`;
+        }
+      }
+
+      // Predefined external tools
+      html += '<div style="font-size:9px;color:var(--dim);padding:6px 4px 2px">EXTERNAL TOOLS</div>';
+      const externals = [
+        { name: "houdini", label: "Houdini", desc: "SideFX Houdini — 3D procedural", port: 9090, group: "Render" },
+        { name: "unreal-engine", label: "Unreal Engine", desc: "UE5 — game engine", port: 30010, group: "Render" },
+        { name: "blender", label: "Blender", desc: "Blender — 3D modeling", port: 8585, group: "Render" },
+        { name: "stable-diffusion", label: "Stable Diffusion", desc: "SD WebUI / A1111", port: 7861, group: "Render" },
+        { name: "whisper-live", label: "Whisper Live", desc: "Real-time STT server", port: 9091, group: "oAudio" },
+        { name: "custom", label: "Custom Service", desc: "Define your own", port: 0, group: "Other" },
+      ];
+      for (const ext of externals) {
+        html += `<div class="svc-discover-item" data-name="${_esc(ext.name)}" data-type="external" data-port="${ext.port}" data-group="${_esc(ext.group)}" data-desc="${_esc(ext.desc)}" style="padding:4px 8px;cursor:pointer;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.05)">`;
+        html += `<b>${_esc(ext.label)}</b> <span style="color:var(--dim)">${_esc(ext.desc)}</span>`;
+        html += `</div>`;
+      }
+
+      dropdown.innerHTML = html;
+
+      // Click handlers
+      dropdown.querySelectorAll(".svc-discover-item").forEach(el => {
+        el.addEventListener("click", () => {
+          const name = el.dataset.name;
+          const type = el.dataset.type;
+          if (type === "discovered") {
+            // Auto-add discovered service node to canvas
+            if (graph) {
+              const node = LiteGraph.createNode(`oAIo/${name}`);
+              if (node) {
+                node.pos = [200, 200];
+                graph.add(node);
+                scheduleGraphSave();
+              }
+            }
+            document.getElementById("add-svc-modal").classList.add("hidden");
+          } else {
+            // Fill in the manual form for external tools
+            document.getElementById("svc-name").value = name === "custom" ? "" : name;
+            document.getElementById("svc-port").value = el.dataset.port || "0";
+            document.getElementById("svc-group").value = el.dataset.group || "Other";
+            document.getElementById("svc-desc").value = el.dataset.desc || "";
+            // Show the form section
+            document.getElementById("svc-form-section").style.display = "";
+            dropdown.style.display = "none";
+          }
+        });
+        el.addEventListener("mouseenter", () => { el.style.background = "rgba(88,101,242,0.2)"; });
+        el.addEventListener("mouseleave", () => { el.style.background = ""; });
+      });
+
+    } catch (e) {
+      dropdown.innerHTML = `<div style="color:var(--red);font-size:9px;padding:4px">Discovery failed: ${_esc(e.message)}</div>`;
+    }
+  }
+
+  // Reset: show discover list, hide manual form
+  const formSection = document.getElementById("svc-form-section");
+  if (formSection) formSection.style.display = "none";
+  const discList = document.getElementById("svc-discover-list");
+  if (discList) discList.style.display = "";
+
   document.getElementById("add-svc-modal").classList.remove("hidden");
 });
 
@@ -1481,9 +1571,28 @@ document.getElementById("svc-submit").addEventListener("click", async () => {
   }
 });
 
-// --- Create Mode — redirect canvas-nav button to mode strip inline create ---
+// --- Create Mode — add a LiteGraph Group frame on the canvas ---
 document.getElementById("add-mode-btn").addEventListener("click", () => {
-  document.getElementById("mode-strip-add")?.click();
+  if (!graph) return;
+
+  const name = prompt("Mode name:");
+  if (!name || !name.trim()) return;
+
+  // Create a LiteGraph group (visual frame)
+  const group = new LiteGraph.LGraphGroup();
+  group.title = name.trim();
+  group.pos = [100, 100];
+  group.size = [600, 400];
+  group.color = "rgba(88, 101, 242, 0.3)";
+  group.font_size = 14;
+  graph.add(group);
+
+  canvas?.setDirty(true, true);
+  scheduleGraphSave();
+
+  if (typeof showAlert === "function") {
+    showAlert("success", `Mode frame "${name.trim()}" created — drag nodes into it, then click SAVE GRAPH MODE`);
+  }
 });
 
 document.getElementById("mode-new-cancel").addEventListener("click", () => {
@@ -1761,32 +1870,67 @@ document.getElementById("scan-results-close").addEventListener("click", () => {
 });
 
 // AUTO WIRE button
-// Save Graph Mode — create a mode from current graph wiring
+// Save Graph Mode — detect nodes inside a group frame, or all nodes if no groups
 document.getElementById("save-graph-mode-btn")?.addEventListener("click", async () => {
   if (!window._activeGraphId) {
     if (typeof showAlert === "function") showAlert("warning", "No active graph — generate one first");
     return;
   }
 
-  const name = prompt("Mode name:");
-  if (!name || !name.trim()) return;
+  // Check for groups (mode frames) — if any, let user pick which group to save
+  const groups = graph?._groups || [];
+  let services = [];
+  let modeName = "";
 
-  const budgetStr = prompt("VRAM budget (GB):", "11");
-  const budget = parseFloat(budgetStr) || 11;
+  if (groups.length > 0) {
+    // Build list of groups with their contained nodes
+    const groupOptions = groups.map((g, i) => {
+      const contained = (graph._nodes || []).filter(n => {
+        if (!n._svc?.name) return false;
+        return n.pos[0] >= g.pos[0] && n.pos[1] >= g.pos[1] &&
+               n.pos[0] + n.size[0] <= g.pos[0] + g.size[0] &&
+               n.pos[1] + n.size[1] <= g.pos[1] + g.size[1];
+      });
+      return { index: i, title: g.title, nodes: contained };
+    }).filter(g => g.nodes.length > 0);
 
-  // Get services from current LiteGraph nodes
-  const services = [];
-  if (graph) {
+    if (groupOptions.length === 0) {
+      // No nodes inside any group — fall back to all nodes
+      modeName = prompt("No nodes inside any group frame.\nSave ALL nodes as mode?\n\nMode name:");
+      if (!modeName) return;
+      for (const node of (graph._nodes || [])) {
+        if (node._svc?.name) services.push(node._svc.name);
+      }
+    } else if (groupOptions.length === 1) {
+      modeName = groupOptions[0].title;
+      services = groupOptions[0].nodes.map(n => n._svc.name);
+    } else {
+      const choice = prompt(
+        "Multiple mode frames found:\n" +
+        groupOptions.map((g, i) => `${i + 1}. ${g.title} (${g.nodes.length} services)`).join("\n") +
+        "\n\nEnter number:"
+      );
+      const idx = parseInt(choice) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= groupOptions.length) return;
+      modeName = groupOptions[idx].title;
+      services = groupOptions[idx].nodes.map(n => n._svc.name);
+    }
+  } else {
+    modeName = prompt("Mode name:");
+    if (!modeName) return;
     for (const node of (graph._nodes || [])) {
       if (node._svc?.name) services.push(node._svc.name);
     }
   }
 
   if (services.length === 0) {
-    if (typeof showAlert === "function") showAlert("warning", "No service nodes in graph");
+    if (typeof showAlert === "function") showAlert("warning", "No service nodes found");
     return;
   }
 
+  const budgetStr = prompt(`VRAM budget for "${modeName}" (GB):`, "11");
+  const budget = parseFloat(budgetStr) || 11;
+  const name = modeName;
   const modeKey = name.trim().toLowerCase().replace(/\s+/g, "-");
 
   try {
