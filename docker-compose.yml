@@ -150,9 +150,9 @@ services:
       - "${OAIO_BIND:-127.0.0.1}:8003:8003"
       - "${OAIO_BIND:-127.0.0.1}:7880:7880"
     volumes:
-      - /mnt/oaio/hf-cache:/hf-cache
+      - /dev/shm/oaio-whisper:/hf-cache
     environment:
-      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
+      - WHISPER_MODEL=${WHISPER_MODEL:-small}
       - WHISPER_DEVICE=cpu
       - HF_HOME=/hf-cache
 
@@ -223,6 +223,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /sys/class/drm:/sys/class/drm:ro
+      - /proc:/host-proc:ro                          # per-process VRAM via fdinfo
       - /mnt/oaio/rvc-ref:/rvc/audio
       - /mnt/oaio/comfyui-user:/comfyui-user:ro
       - ./config:/app/config

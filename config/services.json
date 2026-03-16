@@ -174,5 +174,6 @@
   "vram_total_gb": 20,
   "ram_total_gb": 62,
   "vram_warning_threshold": 0.85,
-  "vram_hard_limit": 0.95
+  "vram_hard_limit": 0.95,
+  "enforcement_mode": "estimated"
 }

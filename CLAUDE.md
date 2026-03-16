@@ -7,7 +7,7 @@
 
 ## What This Is
 
-oAIo is a local AI workstation orchestration platform. Not an AI tool — the layer that makes all AI tools aware of each other, enforces shared GPU/RAM constraints, and presents 8 Docker containers as one coherent system.
+oAIo is a local AI workstation orchestration platform. Not an AI tool — the layer that makes all AI tools aware of each other, enforces shared GPU/RAM constraints, and presents 10 Docker containers as one coherent system.
 
 **The pitch:** OctoPrint for AI infrastructure.
 
@@ -15,7 +15,7 @@ oAIo is a local AI workstation orchestration platform. Not an AI tool — the la
 
 ## System — SYS-PANDORA-OAO
 - CPU: AMD Ryzen 9 3900X | RAM: 62GB | GPU: RX 7900 XT 20GB (gfx1100, RDNA3)
-- OS: Ubuntu 22.04.5 LTS | ROCm 6.2 | Python 3.10
+- OS: Ubuntu 24.04 LTS | ROCm (Docker only) | Python 3.10+
 - VRAM sysfs: `/sys/class/drm/card1/device/mem_info_vram_used|total|gpu_busy_percent`
 - Always use `python3`. Prefer Docker over system pip installs.
 
@@ -198,7 +198,7 @@ GET  /voices
 
 ## Parked Work (do not implement unless asked)
 - **RAM tier** — end-to-end verification; CONFIG/template integration
-- **WS reconnect** — clean recovery if connection drops
+- ~~**WS reconnect**~~ — DONE: auto-reconnect with 3s retry + "CONNECTION LOST" banner on all WS (status, fleet, m3)
 - **boot_with_system** — oaio boot sequence should respect the flag
 - **f5-tts OOM** — system RAM pressure on startup, no enforcer coverage for host RAM OOM
 - ~~**Benchmark card -> service nodes**~~ — DONE: per-service VRAM/RAM estimates in node sparklines, title bar color syncs from WS

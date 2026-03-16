@@ -23,6 +23,7 @@ from collections import deque
 from pathlib import Path
 import psutil
 from .vram import get_vram_usage
+from .vram_realtime import get_per_container_vram
 from . import resources
 
 log = logging.getLogger("enforcer")
@@ -42,6 +43,9 @@ enforcer_enabled: bool = True
 
 # Virtual VRAM ceiling — when set, enforcer pretends GPU has this much total VRAM
 vram_virtual_ceiling_gb: float | None = None
+
+# Per-container VRAM snapshot — updated each cycle when enforcement_mode=realtime
+per_container_vram: dict = {}
 
 # Kill/crash/restore log — last 50 events, exported via WS + /enforcement/status
 kill_log: deque = deque(maxlen=50)
@@ -88,10 +92,11 @@ def register_manual_stop(container_name: str, svc_name: str, priority: int = 3):
     }
 
 
-async def enforcement_loop(get_services_fn, get_docker_fn):
+async def enforcement_loop(get_services_fn, get_docker_fn, get_enforcement_mode_fn=None):
     """
-    get_services_fn() — returns current services config dict (re-read each cycle)
-    get_docker_fn()   — returns docker client (from_env)
+    get_services_fn()          — returns current services config dict (re-read each cycle)
+    get_docker_fn()            — returns docker client (from_env)
+    get_enforcement_mode_fn()  — returns "estimated" or "realtime" (optional, defaults to estimated)
     """
     log.info("Enforcement loop started (poll every %ds)", POLL_INTERVAL)
     _last_kill = None  # cooldown — don't kill same container twice in a row
@@ -180,6 +185,13 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                         _killed_services[ctr] = info  # retry next cycle
 
             # ── 3. VRAM OOM enforcement — only when enabled + mode active ──
+            _enforcement_mode = get_enforcement_mode_fn() if get_enforcement_mode_fn else "estimated"
+
+            # Update per-container VRAM snapshot when in realtime mode
+            if _enforcement_mode == "realtime":
+                container_names = [s.get("container") for s in services.values() if s.get("container")]
+                per_container_vram.update(get_per_container_vram(client, container_names))
+
             if enforcer_enabled and active_modes:
                 if pct < resources.HARD_THRESHOLD:
                     _last_kill = None  # reset cooldown when pressure drops
@@ -197,13 +209,20 @@ async def enforcement_loop(get_services_fn, get_docker_fn):
                                 continue
                         except Exception:
                             continue
-                        candidates.append((svc.get("priority", 3), svc_name, ctr))
+                        # In realtime mode, use actual VRAM; in estimated, use priority
+                        actual_vram = per_container_vram.get(ctr, 0) if _enforcement_mode == "realtime" else 0
+                        candidates.append((svc.get("priority", 3), actual_vram, svc_name, ctr))
 
                     if not candidates:
                         log.warning("VRAM %.0f%% — no stoppable services (all soft-limit)", pct * 100)
                     else:
-                        candidates.sort(key=lambda x: -x[0])
-                        priority, target_svc, target_ctr = candidates[0]
+                        if _enforcement_mode == "realtime":
+                            # Kill the container using the most VRAM (among hard-limit ones)
+                            candidates.sort(key=lambda x: -x[1])
+                        else:
+                            # Kill by priority (highest number = least important)
+                            candidates.sort(key=lambda x: -x[0])
+                        priority, actual_vram, target_svc, target_ctr = candidates[0]
 
                         if target_ctr == _last_kill:
                             log.warning("Cooldown: %s already stopped, skipping", target_ctr)

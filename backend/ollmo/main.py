@@ -306,7 +306,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_rvc_startup_refresh())
     task = asyncio.create_task(
-        enforcement_loop(_services_cfg, _docker_client)
+        enforcement_loop(_services_cfg, _docker_client, _enforcement_mode)
     )
     yield
     task.cancel()
@@ -372,6 +372,11 @@ def _atomic_write(path: Path, data: str):
 # Always read fresh — never cache; services/modes are mutable at runtime
 def _services_cfg() -> dict:
     return json.loads(SERVICES_CFG_FILE.read_text())["services"]
+
+
+def _enforcement_mode() -> str:
+    cfg = json.loads(SERVICES_CFG_FILE.read_text())
+    return cfg.get("enforcement_mode", "estimated")
 
 def _modes() -> dict:
     return json.loads(MODES_CFG_FILE.read_text())["modes"]
@@ -1691,6 +1696,8 @@ async def ws_status(websocket: WebSocket):
                     "real_total_gb":     vram.get("total_gb", 20),
                     "effective_total_gb": round(vram_total, 1),
                     "kill_order":        kill_order,
+                    "mode":              _enforcement_mode(),
+                    "per_container_vram": _enforcer.per_container_vram if _enforcement_mode() == "realtime" else {},
                 },
                 "profile": {
                     "active":          _active_profile_name is not None,
@@ -1846,6 +1853,27 @@ def enforcement_set_ceiling(body: dict):
         "hard_at_gb": round(effective * resources.HARD_THRESHOLD, 1),
         "warnings": warnings,
     }
+
+
+@app.post("/enforcement/mode", tags=["Enforcement"])
+async def enforcement_set_mode(body: dict):
+    """Toggle enforcement mode between 'estimated' and 'realtime'.
+    body: {mode: "estimated" | "realtime"}
+    """
+    mode = body.get("mode", "").strip().lower()
+    if mode not in ("estimated", "realtime"):
+        raise HTTPException(status_code=400, detail="mode must be 'estimated' or 'realtime'")
+    async with _config_lock:
+        cfg = json.loads(SERVICES_CFG_FILE.read_text())
+        cfg["enforcement_mode"] = mode
+        _atomic_write(SERVICES_CFG_FILE, json.dumps(cfg, indent=2))
+    return {"enforcement_mode": mode}
+
+
+@app.get("/enforcement/mode", tags=["Enforcement"])
+def enforcement_get_mode():
+    cfg = json.loads(SERVICES_CFG_FILE.read_text())
+    return {"enforcement_mode": cfg.get("enforcement_mode", "estimated")}
 
 
 @app.post("/modes/{name}/reset", tags=["Modes"])
