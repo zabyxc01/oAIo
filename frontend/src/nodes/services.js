@@ -1,9 +1,10 @@
 /**
- * oAIo Service Nodes — Litegraph.js definitions
- * Routing-driven I/O ports derived from actual service connections.
+ * oAIo Service Nodes — LiteGraph definitions
+ * Graph-engine-driven: ports derived from auto-discovery API.
+ * Falls back to static SERVICE_PORTS if graph API unavailable.
  */
 
-// Service → input/output port definitions based on routing architecture
+// Static fallback ports (used if /graph/discover is unavailable)
 const SERVICE_PORTS = {
   ollama:       { in: [["llm_req", "request"]],     out: [["llm_resp", "response"]] },
   "open-webui": { in: [["llm_resp", "response"], ["tts_audio", "audio"], ["image", "image"]],
@@ -16,11 +17,41 @@ const SERVICE_PORTS = {
   styletts2:    { in: [["tts_req", "request"]],      out: [["raw_audio", "audio"]] },
 };
 
-// Fallback for unknown services
 const DEFAULT_PORTS = { in: [["input", "any"]], out: [["output", "any"]] };
 
-// Register service nodes from API — data-driven
+// Graph-discovered port data — populated by registerGraphNodes()
+let _graphPorts = {};
+
+// Map graph data_type to LiteGraph slot type
+const _GRAPH_TYPE_MAP = {
+  "text": "string",
+  "audio": "audio",
+  "image": "image",
+  "embedding": "array",
+  "json": "object",
+  "file-path": "string",
+  "number": "number",
+  "video": "video",
+  "any": "any",
+};
+
+function _graphTypeToLG(dataType) {
+  return _GRAPH_TYPE_MAP[dataType] || dataType || "any";
+}
+
+// Register service nodes from graph API, with fallback to static ports
 async function registerServiceNodes() {
+  // Try graph discovery first
+  let graphNodes = null;
+  try {
+    const r = await fetch(`${OLLMO_API}/graph/discover`, { method: "POST" });
+    if (r.ok) {
+      const data = await r.json();
+      graphNodes = data.nodes || {};
+    }
+  } catch {}
+
+  // Load service definitions for metadata
   let defs = [];
   try {
     const r = await fetch(`${OLLMO_API}/config/services`);
@@ -41,7 +72,31 @@ async function registerServiceNodes() {
   }
 
   defs.forEach(def => {
-    const io = SERVICE_PORTS[def.name] || DEFAULT_PORTS;
+    let io;
+
+    // Priority 1: graph-discovered ports
+    if (graphNodes && graphNodes[def.name]) {
+      const gNode = graphNodes[def.name];
+      const inPorts = [];
+      const outPorts = [];
+      for (const plugin of (gNode.plugins || [])) {
+        for (const port of (plugin.ports || [])) {
+          const lgType = _graphTypeToLG(port.data_type);
+          if (port.direction === "in") {
+            inPorts.push([port.name, lgType]);
+          } else {
+            outPorts.push([port.name, lgType]);
+          }
+        }
+      }
+      io = { in: inPorts, out: outPorts };
+      _graphPorts[def.name] = { node: gNode, io };
+    }
+    // Priority 2: static fallback
+    else {
+      io = SERVICE_PORTS[def.name] || DEFAULT_PORTS;
+    }
+
     const shortLabel = def.name.charAt(0).toUpperCase() + def.name.slice(1);
 
     function NodeClass() {
@@ -65,6 +120,10 @@ async function registerServiceNodes() {
         status:     "unknown",
         ramUsed:    0,
       };
+      // Store graph node data for edge management
+      if (_graphPorts[def.name]) {
+        this._graphNode = _graphPorts[def.name].node;
+      }
       this._refreshStatus();
     }
 
@@ -77,7 +136,6 @@ async function registerServiceNodes() {
         this._svc.status  = d.status || "unknown";
         this._svc.ramUsed = d.ram_used_gb || 0;
       } catch { this._svc.status = "error"; }
-      // Color title bar by status
       const _cs = getComputedStyle(document.documentElement);
       const _green = _cs.getPropertyValue("--tier-ram-bg").trim() || "#0a2a14";
       const _red = _cs.getPropertyValue("--tier-sata-bg").trim() || "#2a1e00";
@@ -89,7 +147,6 @@ async function registerServiceNodes() {
 
     NodeClass.prototype.onDrawForeground = function(ctx) {
       const s = this._svc;
-      // Status bar under title
       const _cs = getComputedStyle(document.documentElement);
       const barColor = s.status === "running" ? (_cs.getPropertyValue("--green").trim() || "#00e676")
                      : s.status === "stopped" ? (_cs.getPropertyValue("--red").trim() || "#ff1744")
@@ -99,7 +156,6 @@ async function registerServiceNodes() {
     };
 
     NodeClass.prototype.onMouseDown = function(e, pos) {
-      // Click title bar to toggle start/stop
       if (pos[1] < 0) {
         const action = this._svc.status === "running" ? "stop" : "start";
         fetch(`${OLLMO_API}/services/${this._svc.name}/${action}`, { method: "POST" })

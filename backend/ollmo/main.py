@@ -1143,19 +1143,72 @@ def activate_mode(name: str, force: bool = False):
     _active_modes.add(name)
     _persist_active_modes()
 
+    # Activate graph router if mode has a bound graph state
+    graph_id = mode.get("graph_state")
+    if graph_id:
+        gs = load_graph(graph_id)
+        if gs:
+            # Build service URL map from environment + services config
+            svc_urls = _build_service_urls(services)
+            route_manager.set_active_graph(gs, svc_urls)
+
     return {
         "mode":       name,
         "results":    results,
         "projection": projection,
         "warning":    projection["warning"],
+        "graph_state": graph_id,
     }
+
+
+def _build_service_urls(services: dict) -> dict:
+    """Build service URL map for the router from env vars + service ports."""
+    # Known env var mappings
+    urls = {
+        "ollama": os.environ.get("OLLAMA_URL", "http://ollama:11434"),
+        "kokoro-tts": os.environ.get("KOKORO_URL", "http://kokoro-tts:8000"),
+        "rvc": os.environ.get("RVC_PROXY", "http://rvc:8001"),
+        "f5-tts": os.environ.get("F5_TTS_URL", "http://f5-tts:7860"),
+        "faster-whisper": os.environ.get("STT_URL", "http://faster-whisper:8003"),
+    }
+    # Fill in from service config for anything not in env
+    for svc_name, svc in services.items():
+        if svc_name not in urls:
+            ctr = svc.get("container", svc_name)
+            port = svc.get("port", 8000)
+            urls[svc_name] = f"http://{ctr}:{port}"
+    return urls
 
 
 @app.post("/modes/{name}/deactivate", tags=["Modes"])
 def deactivate_mode(name: str):
     _active_modes.discard(name)
     _persist_active_modes()
+    route_manager.clear()
     return {"deactivated": name, "active_modes": list(_active_modes)}
+
+
+@app.post("/modes/{name}/bind-graph", tags=["Modes"])
+async def bind_graph_to_mode(name: str, body: dict):
+    """Associate a graph state with a mode.
+    body: {graph_id: "gs_..."}
+    """
+    graph_id = body.get("graph_id", "").strip()
+    if not graph_id:
+        raise HTTPException(status_code=400, detail="graph_id required")
+
+    gs = load_graph(graph_id)
+    if not gs:
+        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+
+    async with _config_lock:
+        cfg = json.loads(MODES_CFG_FILE.read_text())
+        if name not in cfg["modes"]:
+            raise HTTPException(status_code=404, detail=f"Mode '{name}' not found")
+        cfg["modes"][name]["graph_state"] = graph_id
+        _atomic_write(MODES_CFG_FILE, json.dumps(cfg, indent=2))
+
+    return {"mode": name, "graph_state": graph_id}
 
 
 @app.post("/emergency/kill", tags=["Enforcement"])

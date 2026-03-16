@@ -89,17 +89,39 @@ function saveGraph() {
   }).catch(() => {});
 }
 
-function createDefaultGraph() {
-  [
-    ["oAIo/ollama",     [60,  60]],
-    ["oAIo/kokoro-tts", [60,  220]],
-    ["oAIo/rvc",        [320, 220]],
-    ["oAIo/open-webui", [320, 60]],
-    ["oAIo/f5-tts",     [60,  380]],
-    ["oAIo/comfyui",    [580, 60]],
-  ].forEach(([type, pos]) => {
+// Active graph ID for edge persistence
+window._activeGraphId = null;
+
+async function createDefaultGraph() {
+  // Try graph engine first — auto-discover and create graph
+  try {
+    const r = await _fetch(`${OLLMO_API}/graph/generate-default`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "System Default" }),
+    });
+    if (r.ok) {
+      const gs = await r.json();
+      window._activeGraphId = gs.id;
+      console.log(`[graph] Generated default graph: ${gs.id} (${Object.keys(gs.nodes || {}).length} nodes)`);
+    }
+  } catch (e) {
+    console.warn("[graph] Could not generate default graph:", e);
+  }
+
+  // Create LiteGraph nodes from all registered types in a grid
+  const types = LiteGraph.registered_node_types;
+  const oaioTypes = Object.keys(types).filter(t => t.startsWith("oAIo/")).sort();
+  const cols = 3;
+  const spacingX = 260;
+  const spacingY = 160;
+  oaioTypes.forEach((type, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
     const node = LiteGraph.createNode(type);
-    if (node) { node.pos = pos; graph.add(node); }
+    if (node) {
+      node.pos = [60 + col * spacingX, 60 + row * spacingY];
+      graph.add(node);
+    }
   });
 }
 
@@ -227,6 +249,70 @@ async function _doSyncRoutingFromWires() {
   }
 }
 
+// Sync LiteGraph connections to graph engine edges
+async function _syncEdgesToGraph() {
+  if (!graph || !window._activeGraphId) return;
+  const gid = window._activeGraphId;
+
+  // Build a set of current LiteGraph connections as "source_svc:slot -> target_svc:slot"
+  const lgLinks = [];
+  for (const [linkId, link] of Object.entries(graph.links || {})) {
+    if (!link) continue;
+    const srcNode = graph.getNodeById(link.origin_id);
+    const tgtNode = graph.getNodeById(link.target_id);
+    if (!srcNode?._graphNode || !tgtNode?._graphNode) continue;
+
+    // Find the graph port IDs from the slot indices
+    const srcSlot = srcNode.outputs?.[link.origin_slot];
+    const tgtSlot = tgtNode.inputs?.[link.target_slot];
+    if (!srcSlot || !tgtSlot) continue;
+
+    // Match slot names to graph port IDs
+    const srcPorts = (srcNode._graphNode.plugins || []).flatMap(p => p.ports || []);
+    const tgtPorts = (tgtNode._graphNode.plugins || []).flatMap(p => p.ports || []);
+    const srcPort = srcPorts.find(p => p.name === srcSlot.name && p.direction === "out");
+    const tgtPort = tgtPorts.find(p => p.name === tgtSlot.name && p.direction === "in");
+    if (!srcPort || !tgtPort) continue;
+
+    lgLinks.push({ source_port: srcPort.id, target_port: tgtPort.id });
+  }
+
+  // Get current graph edges
+  let currentEdges = {};
+  try {
+    const r = await _fetch(`${OLLMO_API}/graph/edges/${gid}`);
+    if (r.ok) currentEdges = await r.json();
+  } catch {}
+
+  // Add missing edges
+  for (const link of lgLinks) {
+    const exists = Object.values(currentEdges).some(e =>
+      e.source_port === link.source_port && e.target_port === link.target_port
+    );
+    if (!exists) {
+      try {
+        await _fetch(`${OLLMO_API}/graph/edges/${gid}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source_port: link.source_port, target_port: link.target_port, sync_mode: "auto" }),
+        });
+      } catch {}
+    }
+  }
+
+  // Remove stale edges (in graph but not in LiteGraph)
+  for (const [eid, edge] of Object.entries(currentEdges)) {
+    const exists = lgLinks.some(l =>
+      l.source_port === edge.source_port && l.target_port === edge.target_port
+    );
+    if (!exists) {
+      try {
+        await _fetch(`${OLLMO_API}/graph/edges/${gid}/${eid}`, { method: "DELETE" });
+      } catch {}
+    }
+  }
+}
+
 async function initLiteGraph() {
   if (graph) return;
   if (!_lgReady) {
@@ -255,7 +341,7 @@ async function initLiteGraph() {
     canvas.processContextMenu = function() {};
     canvas.resize();
 
-    // Try loading saved graph
+    // Try loading saved LiteGraph state
     let loaded = false;
     try {
       const r = await _fetch(`${OLLMO_API}/config/nodes`);
@@ -266,7 +352,18 @@ async function initLiteGraph() {
       }
     } catch {}
 
-    if (!loaded) createDefaultGraph();
+    // Try to find existing graph state
+    if (!window._activeGraphId) {
+      try {
+        const r = await _fetch(`${OLLMO_API}/graph/states`);
+        const states = await r.json();
+        if (states.length > 0) {
+          window._activeGraphId = states[0].id;
+        }
+      } catch {}
+    }
+
+    if (!loaded) await createDefaultGraph();
 
     graph.start();
 
@@ -303,7 +400,15 @@ async function initLiteGraph() {
     };
 
     canvas.onNodeMoved = () => { scheduleGraphSave(); drawGroupBoxes(); };
-    canvas.onConnectionChange = () => { scheduleGraphSave(); renderConnectionMap(); syncRoutingFromWires(); };
+    canvas.onConnectionChange = () => {
+      scheduleGraphSave();
+      renderConnectionMap();
+      syncRoutingFromWires();
+      // Persist edges to graph engine (non-blocking)
+      if (window._activeGraphId) {
+        _syncEdgesToGraph().catch(e => console.warn("[graph] Edge sync error:", e));
+      }
+    };
 
     // Redraw group boxes when canvas is panned/zoomed
     const origDraw = canvas.draw.bind(canvas);
