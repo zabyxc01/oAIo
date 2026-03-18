@@ -1,0 +1,15 @@
+{
+  "name": "companion",
+  "version": "0.1.0",
+  "description": "Companion client relay — desktop + phone AI assistant pipeline",
+  "author": "oAIo",
+  "enabled": true,
+  "backend": {
+    "router": "backend.py",
+    "prefix": "/extensions/companion"
+  },
+  "frontend": {
+    "nodes": ["nodes.js"]
+  },
+  "services": []
+}

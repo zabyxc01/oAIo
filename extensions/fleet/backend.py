@@ -147,9 +147,12 @@ async def register_node(body: dict):
     if not name or not url:
         return {"error": "name and url are required"}
 
-    safe, reason = _is_safe_url(url)
-    if not safe:
-        return {"error": f"Rejected node URL: {reason}"}
+    # Skip URL validation for thin-clients (they don't expose an HTTP API)
+    node_type = body.get("node_type", "hub")
+    if node_type != "thin-client":
+        safe, reason = _is_safe_url(url)
+        if not safe:
+            return {"error": f"Rejected node URL: {reason}"}
 
     # Check if already registered by URL — update rather than duplicate
     existing_id = next(
@@ -157,23 +160,30 @@ async def register_node(body: dict):
     )
     node_id = existing_id or str(uuid.uuid4())[:8]
 
-    # Probe the remote to get its capabilities
-    capabilities = {}
-    reachable = False
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(f"{url}/config/services")
-            if r.status_code == 200:
-                capabilities = r.json()
-                reachable = True
-    except Exception:
-        pass
+    # Probe the remote to get its capabilities (skip for thin-clients)
+    capabilities = body.get("client_info", {}) if node_type == "thin-client" else {}
+    reachable = node_type == "thin-client"  # thin-clients are reachable if they're registering
+    if node_type != "thin-client":
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(f"{url}/config/services")
+                if r.status_code == 200:
+                    capabilities = r.json()
+                    reachable = True
+        except Exception:
+            pass
+
+    node_type = body.get("node_type", "hub")
+    if node_type not in ("hub", "training", "thin-client"):
+        node_type = "hub"
 
     node = {
         "id":           node_id,
         "name":         name,
         "url":          url,
         "tags":         body.get("tags", []),
+        "node_type":    node_type,
+        "client_info":  body.get("client_info", {}),
         "registered_at": _state["nodes"].get(node_id, {}).get("registered_at", _now()),
         "last_seen":    _now(),
         "reachable":    reachable,
@@ -271,6 +281,9 @@ async def dispatch_job(body: dict):
     node = _state["nodes"].get(node_id)
     if not node:
         return {"error": f"Node '{node_id}' not found"}
+
+    if node.get("node_type") == "thin-client":
+        return {"error": f"Node '{node_id}' is a thin-client and cannot receive jobs"}
 
     job_id = str(uuid.uuid4())[:8]
     job = {
