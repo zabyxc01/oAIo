@@ -6,7 +6,7 @@
       "url": "http://127.0.0.1:9000",
       "tags": [],
       "registered_at": "2026-03-08T08:53:09.407841+00:00",
-      "last_seen": "2026-03-16T10:35:10.455181+00:00",
+      "last_seen": "2026-03-18T06:41:03.997623+00:00",
       "reachable": true,
       "capabilities": {
         "ollama": {
@@ -149,11 +149,414 @@
         }
       },
       "vram_snapshot": {
-        "used_bytes": 1899188224,
+        "used_bytes": 8554758144,
         "total_bytes": 21458059264,
-        "used_gb": 1.9,
+        "used_gb": 8.55,
         "total_gb": 21.46,
-        "percent": 8.9
+        "percent": 39.9
+      }
+    },
+    "608f5f9a": {
+      "id": "608f5f9a",
+      "name": "oprojecto",
+      "url": "companion://178c7f7a2640",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-17T17:19:36.565420+00:00",
+      "last_seen": "2026-03-17T17:19:36.565428+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "531af3ac": {
+      "id": "531af3ac",
+      "name": "oprojecto",
+      "url": "companion://273f1c8b0a91",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-17T22:49:58.288843+00:00",
+      "last_seen": "2026-03-17T22:49:58.288851+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "62700431": {
+      "id": "62700431",
+      "name": "oprojecto",
+      "url": "companion://cc7db3159b7f",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T01:19:29.251434+00:00",
+      "last_seen": "2026-03-18T01:19:29.251441+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "bfac7c06": {
+      "id": "bfac7c06",
+      "name": "oprojecto",
+      "url": "companion://dc7f3f8b9ecb",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T01:26:17.436243+00:00",
+      "last_seen": "2026-03-18T01:26:17.436251+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "6501a3cb": {
+      "id": "6501a3cb",
+      "name": "oprojecto",
+      "url": "companion://718254b25067",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T04:29:56.598701+00:00",
+      "last_seen": "2026-03-18T04:29:56.598708+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "667ce1ee": {
+      "id": "667ce1ee",
+      "name": "oprojecto",
+      "url": "companion://a5cac18c3434",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T04:33:45.244384+00:00",
+      "last_seen": "2026-03-18T04:33:45.244393+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "45c3c1e8": {
+      "id": "45c3c1e8",
+      "name": "oprojecto",
+      "url": "companion://ee5b12d96ad3",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T04:51:33.502699+00:00",
+      "last_seen": "2026-03-18T04:51:33.502710+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "45345a59": {
+      "id": "45345a59",
+      "name": "oprojecto",
+      "url": "companion://af2465144931",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T04:58:05.098259+00:00",
+      "last_seen": "2026-03-18T04:58:05.098273+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "6facb26d": {
+      "id": "6facb26d",
+      "name": "oprojecto",
+      "url": "companion://b3ec19544c9d",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T05:09:00.567973+00:00",
+      "last_seen": "2026-03-18T05:09:00.567985+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "837ea01c": {
+      "id": "837ea01c",
+      "name": "oprojecto",
+      "url": "companion://573d91d5f821",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T05:56:07.298835+00:00",
+      "last_seen": "2026-03-18T05:56:07.298847+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "c9972de1": {
+      "id": "c9972de1",
+      "name": "oprojecto",
+      "url": "companion://6880aa51f4a9",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T06:00:16.949792+00:00",
+      "last_seen": "2026-03-18T06:00:16.949803+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "0b392feb": {
+      "id": "0b392feb",
+      "name": "oprojecto",
+      "url": "companion://6433a06905fc",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T06:18:47.791146+00:00",
+      "last_seen": "2026-03-18T06:18:47.791159+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "74511c95": {
+      "id": "74511c95",
+      "name": "oprojecto",
+      "url": "companion://04f87f3b0ca2",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T06:39:37.343208+00:00",
+      "last_seen": "2026-03-18T06:39:37.343227+00:00",
+      "reachable": true,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
       }
     }
   },

@@ -11,6 +11,7 @@ Endpoints:
 import asyncio
 import base64
 import json
+import re
 import time
 import uuid
 from pathlib import Path
@@ -161,19 +162,78 @@ _EMOTION_KEYWORDS = {
 
 
 def _detect_emotion(text: str) -> str:
-    """Detect emotion from response text using keyword matching."""
+    """Detect emotion from response text.
+
+    Parses gemma's natural stage directions like (smiling), (puzzled look),
+    (laughs), bracket tags like [happy], and falls back to keyword matching.
+    """
+    text_stripped = text.strip()
+
+    # Try parenthetical stage directions: (smiling), (puzzled look on face), etc.
+    paren_match = re.match(r'^\(([^)]+)\)', text_stripped)
+    if paren_match:
+        direction = paren_match.group(1).lower()
+        # Map common stage directions to VRM expressions
+        for keyword, emotion in _STAGE_DIRECTION_MAP.items():
+            if keyword in direction:
+                return emotion
+
+    # Try bracket tags: [happy], [sad], etc.
+    bracket_match = re.match(r'^\[(\w+)\]', text_stripped)
+    if bracket_match:
+        tag = bracket_match.group(1).lower()
+        if tag in _BRACKET_TAG_MAP:
+            return _BRACKET_TAG_MAP[tag]
+
+    # Fallback: keyword matching on full text
     text_lower = text.lower()
     scores = {emotion: 0 for emotion in _EMOTION_KEYWORDS}
-
     for emotion, keywords in _EMOTION_KEYWORDS.items():
         for kw in keywords:
             if kw in text_lower:
                 scores[emotion] += 1
-
     best = max(scores, key=scores.get)
     if scores[best] > 0:
         return best
     return "neutral"
+
+
+# Stage direction keywords → VRM expression mapping
+_STAGE_DIRECTION_MAP = {
+    "smile": "happy", "smiling": "happy", "grin": "happy", "beam": "happy",
+    "laugh": "happy", "giggle": "happy", "chuckle": "happy",
+    "excited": "happy", "cheerful": "happy", "bright": "happy",
+    "wink": "happy", "playful": "happy",
+    "sad": "sad", "frown": "sad", "sigh": "sad", "tear": "sad",
+    "disappointed": "sad", "down": "sad", "melancholy": "sad",
+    "angry": "angry", "glare": "angry", "scowl": "angry", "furious": "angry",
+    "irritat": "angry", "annoyed": "angry",
+    "surprise": "surprised", "shock": "surprised", "gasp": "surprised",
+    "wide eye": "surprised", "blink": "surprised", "stunned": "surprised",
+    "puzzl": "surprised", "confused": "surprised", "tilt": "surprised",
+    "calm": "relaxed", "relax": "relaxed", "soft": "relaxed",
+    "gentle": "relaxed", "peaceful": "relaxed", "warm": "relaxed",
+    "nod": "relaxed", "thoughtful": "relaxed", "ponder": "relaxed",
+}
+
+_BRACKET_TAG_MAP = {
+    "happy": "happy", "excited": "happy", "playful": "happy",
+    "sad": "sad", "worried": "sad",
+    "angry": "angry",
+    "surprised": "surprised",
+    "relaxed": "relaxed", "thoughtful": "relaxed",
+    "neutral": "neutral",
+}
+
+
+def _extract_stage_directions(text: str) -> list[str]:
+    """Extract all parenthetical stage directions from the text."""
+    return re.findall(r'\(([^)]+)\)', text)
+
+
+def _strip_stage_directions(text: str) -> str:
+    """Remove parenthetical stage directions from text for TTS (so she doesn't say them aloud)."""
+    return re.sub(r'\([^)]+\)\s*', '', text).strip()
 
 
 # ── Pipeline handlers ────────────────────────────────────────────────────────
@@ -219,28 +279,31 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
     # Detect emotion from response text
     emotion = _detect_emotion(response_text)
 
+    # Strip stage directions for TTS (don't say them aloud)
+    # but keep full text in chat response so user sees the performance
+    tts_text = _strip_stage_directions(response_text)
+    directions = _extract_stage_directions(response_text)
+    if directions:
+        print(f"[companion] stage directions: {directions}")
+
     tts_mode = cfg.get("tts_mode", "batch")
 
-    if tts_mode == "stream" and response_text:
-        # Stream mode: send text, then TTS each sentence individually
+    if tts_mode == "stream" and tts_text:
         await ws.send_text(_msg("chat.response", {
             "text": response_text,
             "done": True,
             "emotion": emotion,
         }, msg_id))
-        await _stream_tts_sentences(ws, response_text, msg_id, cfg)
+        await _stream_tts_sentences(ws, tts_text, msg_id, cfg)
     else:
-        # Batch mode: send text, then TTS the whole thing at once
         await ws.send_text(_msg("chat.response", {
             "text": response_text,
             "done": True,
             "emotion": emotion,
         }, msg_id))
-        if response_text:
-            await _generate_and_send_tts(ws, response_text, msg_id)
+        if tts_text:
+            await _generate_and_send_tts(ws, tts_text, msg_id)
 
-
-import re
 
 def _split_sentences(text: str) -> list[str]:
     """Split text into sentences for streaming TTS."""
@@ -398,7 +461,7 @@ async def _compress_wav_to_mp3(wav_bytes: bytes) -> bytes:
     """Compress WAV to MP3 using ffmpeg — ~10x smaller for WebSocket transfer."""
     import subprocess
     proc = subprocess.run(
-        ["ffmpeg", "-i", "pipe:0", "-f", "mp3", "-ab", "64k", "-ar", "24000", "-ac", "1", "pipe:1"],
+        ["ffmpeg", "-i", "pipe:0", "-f", "mp3", "-ab", "48k", "-ar", "24000", "-ac", "1", "pipe:1"],
         input=wav_bytes, capture_output=True,
     )
     if proc.returncode != 0:

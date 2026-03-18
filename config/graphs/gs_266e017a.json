@@ -2,7 +2,7 @@
   "id": "gs_266e017a",
   "name": "System Default",
   "created_at": "2026-03-16T02:44:03.609096+00:00",
-  "updated_at": "2026-03-16T02:44:03.609119+00:00",
+  "updated_at": "2026-03-17T22:59:55.595938+00:00",
   "nodes": {
     "ollama": {
       "id": "ollama",
