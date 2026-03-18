@@ -43,6 +43,7 @@ RUN mkdir -p checkpoints/t2m && \
 RUN bash prepare/download_glove.sh || true
 
 COPY docker/momask/server.py /app/server.py
+COPY docker/momask/bvh_to_vrma.py /app/bvh_to_vrma.py
 
 ENV HSA_OVERRIDE_GFX_VERSION=11.0.0
 ENV PYTORCH_ROCM_ARCH=gfx1100

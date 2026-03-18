@@ -187,6 +187,45 @@
         "text_to_motion",
         "animation"
       ]
+    },
+    "florence-2": {
+      "container": "florence-2",
+      "port": 8010,
+      "vram_est_gb": 2.0,
+      "ram_est_gb": 2.0,
+      "priority": 35,
+      "limit_mode": "soft",
+      "auto_restore": false,
+      "group": "Vision",
+      "memory_mode": "vram",
+      "description": "Florence-2 vision-language model — screen understanding",
+      "capabilities": ["vision", "caption", "detection"]
+    },
+    "searxng": {
+      "container": "searxng",
+      "port": 8888,
+      "vram_est_gb": 0,
+      "ram_est_gb": 0.3,
+      "priority": 40,
+      "limit_mode": "soft",
+      "auto_restore": false,
+      "group": "Utility",
+      "memory_mode": "ram",
+      "description": "Private web search — SearXNG",
+      "capabilities": ["web_search"]
+    },
+    "letta": {
+      "container": "letta",
+      "port": 8283,
+      "vram_est_gb": 0,
+      "ram_est_gb": 1.0,
+      "priority": 30,
+      "limit_mode": "soft",
+      "auto_restore": false,
+      "group": "Intelligence",
+      "memory_mode": "ram",
+      "description": "Letta (MemGPT) — persistent long-term memory",
+      "capabilities": ["memory", "agent"]
     }
   },
   "vram_total_gb": 20,

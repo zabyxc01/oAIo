@@ -114,6 +114,25 @@
         "momask": 3.0
       },
       "boot_image": null
+    },
+    "assistant": {
+      "id": 8,
+      "name": "Assistant",
+      "description": "Full assistant \u2014 LLM + vision + memory + search + voice",
+      "services": [
+        "ollama",
+        "kokoro-tts",
+        "faster-whisper",
+        "florence-2",
+        "searxng",
+        "letta"
+      ],
+      "vram_budget_gb": 10,
+      "allocations": {
+        "ollama": 7.5,
+        "florence-2": 2.0
+      },
+      "boot_image": null
     }
   },
   "scratch_pad": {

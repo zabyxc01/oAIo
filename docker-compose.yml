@@ -279,3 +279,60 @@ services:
       - ollama
       - kokoro-tts
       - rvc
+
+  # ── Holy Trinity ─────────────────────────────────────────────────
+  florence-2:
+    build:
+      context: .
+      dockerfile: docker/florence-2/Dockerfile
+    container_name: florence-2
+    restart: "no"
+    ports:
+      - "${OAIO_BIND:-127.0.0.1}:8010:8010"
+    networks:
+      - oaio-net
+    volumes:
+      - /mnt/oaio/hf-cache:/root/.cache/huggingface
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: "no"
+    ports:
+      - "${OAIO_BIND:-127.0.0.1}:8888:8888"
+    networks:
+      - oaio-net
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+
+  letta:
+    image: letta/letta:latest
+    container_name: letta
+    restart: "no"
+    ports:
+      - "${OAIO_BIND:-127.0.0.1}:8283:8283"
+    networks:
+      - oaio-net
+    volumes:
+      - /mnt/oaio/letta-data:/root/.letta
+
+  momask:
+    build:
+      context: .
+      dockerfile: docker/momask/Dockerfile
+    container_name: momask
+    restart: "no"
+    ports:
+      - "${OAIO_BIND:-127.0.0.1}:8005:8005"
+    networks:
+      - oaio-net
+    volumes:
+      - /mnt/oaio/momask-models:/models
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+      - PYTORCH_ROCM_ARCH=gfx1100
