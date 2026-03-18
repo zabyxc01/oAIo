@@ -6,7 +6,7 @@
       "url": "http://127.0.0.1:9000",
       "tags": [],
       "registered_at": "2026-03-08T08:53:09.407841+00:00",
-      "last_seen": "2026-03-18T16:22:37.702876+00:00",
+      "last_seen": "2026-03-18T17:13:48.602339+00:00",
       "reachable": true,
       "capabilities": {
         "ollama": {
@@ -149,11 +149,11 @@
         }
       },
       "vram_snapshot": {
-        "used_bytes": 2577854464,
+        "used_bytes": 2682613760,
         "total_bytes": 21458059264,
-        "used_gb": 2.58,
+        "used_gb": 2.68,
         "total_gb": 21.46,
-        "percent": 12.0
+        "percent": 12.5
       }
     },
     "608f5f9a": {
