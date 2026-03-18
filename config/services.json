@@ -169,6 +169,24 @@
         "tts",
         "voice-clone"
       ]
+    },
+    "momask": {
+      "container": "momask",
+      "port": 8005,
+      "vram_est_gb": 3.0,
+      "ram_est_gb": 2.0,
+      "priority": 42,
+      "limit_mode": "hard",
+      "auto_restore": false,
+      "group": "oAnimation",
+      "memory_mode": "vram",
+      "bus_preference": "sata",
+      "boot_with_system": false,
+      "description": "Text-to-motion animation \u2014 MoMask BVH output",
+      "capabilities": [
+        "text_to_motion",
+        "animation"
+      ]
     }
   },
   "vram_total_gb": 20,

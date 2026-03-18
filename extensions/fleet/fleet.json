@@ -6,7 +6,7 @@
       "url": "http://127.0.0.1:9000",
       "tags": [],
       "registered_at": "2026-03-08T08:53:09.407841+00:00",
-      "last_seen": "2026-03-18T07:07:40.026344+00:00",
+      "last_seen": "2026-03-18T16:22:37.702876+00:00",
       "reachable": true,
       "capabilities": {
         "ollama": {
@@ -149,11 +149,11 @@
         }
       },
       "vram_snapshot": {
-        "used_bytes": 7546744832,
+        "used_bytes": 2577854464,
         "total_bytes": 21458059264,
-        "used_gb": 7.55,
+        "used_gb": 2.58,
         "total_gb": 21.46,
-        "percent": 35.2
+        "percent": 12.0
       }
     },
     "608f5f9a": {
@@ -517,6 +517,37 @@
       },
       "registered_at": "2026-03-18T06:18:47.791146+00:00",
       "last_seen": "2026-03-18T06:18:47.791159+00:00",
+      "reachable": false,
+      "capabilities": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      }
+    },
+    "7aef8f61": {
+      "id": "7aef8f61",
+      "name": "oprojecto",
+      "url": "companion://e23dba615d07",
+      "tags": [
+        "companion",
+        "thin-client"
+      ],
+      "node_type": "thin-client",
+      "client_info": {
+        "platform": "Linux",
+        "name": "oprojecto",
+        "capabilities": [
+          "render",
+          "audio_playback"
+        ],
+        "client_type": "desktop"
+      },
+      "registered_at": "2026-03-18T16:00:54.688219+00:00",
+      "last_seen": "2026-03-18T16:00:54.688227+00:00",
       "reachable": false,
       "capabilities": {
         "platform": "Linux",

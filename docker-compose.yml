@@ -209,6 +209,30 @@ services:
       - PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH:-gfx1100}
       - HF_HOME=/hf-cache
 
+  # ── MoMask (text-to-motion animation) ─────────────────────────────────────────
+  momask:
+    build:
+      context: .
+      dockerfile: docker/momask/Dockerfile
+    container_name: momask
+    restart: "no"
+    networks: [oaio-net]
+    ports:
+      - "${OAIO_BIND:-127.0.0.1}:8005:8005"
+    volumes:
+      - /mnt/oaio/momask-models:/models
+      - /mnt/oaio/hf-cache:/hf-cache
+      - /mnt/oaio/staging/momask-output:/output
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
+      - PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH:-gfx1100}
+      - HF_HOME=/hf-cache
+
   # ── oAIo (control plane + UI) ────────────────────────────────────────────────
   oaio:
     build:

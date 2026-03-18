@@ -101,6 +101,19 @@
         "indextts": 8.0
       },
       "boot_image": null
+    },
+    "animation": {
+      "id": 7,
+      "name": "Animation",
+      "description": "Text-to-motion animation generation \u2014 MoMask",
+      "services": [
+        "momask"
+      ],
+      "vram_budget_gb": 4,
+      "allocations": {
+        "momask": 3.0
+      },
+      "boot_image": null
     }
   },
   "scratch_pad": {

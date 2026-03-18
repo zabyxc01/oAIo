@@ -158,6 +158,16 @@ _EMOTION_KEYWORDS = {
         "chill", "relax", "calm", "peaceful", "cozy", "comfy",
         "easy", "mellow", "gentle", "soft", "quiet",
     ],
+    "blush": [
+        "blush", "embarrass", "shy", "fluster", "cute",
+    ],
+    "sleepy": [
+        "sleepy", "tired", "yawn", "exhausted", "drowsy", "nap", "bed",
+    ],
+    "thinking": [
+        "think", "wonder", "hmm", "ponder", "curious", "consider",
+        "puzzl", "confus", "interesting",
+    ],
 }
 
 
@@ -209,11 +219,17 @@ _STAGE_DIRECTION_MAP = {
     "angry": "angry", "glare": "angry", "scowl": "angry", "furious": "angry",
     "irritat": "angry", "annoyed": "angry",
     "surprise": "surprised", "shock": "surprised", "gasp": "surprised",
-    "wide eye": "surprised", "blink": "surprised", "stunned": "surprised",
-    "puzzl": "surprised", "confused": "surprised", "tilt": "surprised",
-    "calm": "relaxed", "relax": "relaxed", "soft": "relaxed",
-    "gentle": "relaxed", "peaceful": "relaxed", "warm": "relaxed",
-    "nod": "relaxed", "thoughtful": "relaxed", "ponder": "relaxed",
+    "wide eye": "surprised", "stunned": "surprised",
+    "calm": "relaxed", "relax": "relaxed", "peaceful": "relaxed",
+    "gentle": "relaxed", "warm": "relaxed", "nod": "relaxed",
+    "blush": "blush", "fluster": "blush", "shy": "blush",
+    "embarrass": "blush", "cute": "blush",
+    "sleepy": "sleepy", "yawn": "sleepy", "tired": "sleepy",
+    "drowsy": "sleepy", "exhausted": "sleepy",
+    "think": "thinking", "ponder": "thinking", "hmm": "thinking",
+    "consider": "thinking", "wonder": "thinking", "puzzl": "thinking",
+    "confused": "thinking", "curious": "thinking", "tilt": "thinking",
+    "thoughtful": "thinking",
 }
 
 _BRACKET_TAG_MAP = {
@@ -221,7 +237,10 @@ _BRACKET_TAG_MAP = {
     "sad": "sad", "worried": "sad",
     "angry": "angry",
     "surprised": "surprised",
-    "relaxed": "relaxed", "thoughtful": "relaxed",
+    "relaxed": "relaxed",
+    "blush": "blush", "shy": "blush", "embarrassed": "blush",
+    "sleepy": "sleepy", "tired": "sleepy",
+    "thinking": "thinking", "thoughtful": "thinking", "curious": "thinking",
     "neutral": "neutral",
 }
 
