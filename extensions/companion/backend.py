@@ -788,6 +788,9 @@ async def companion_ws(websocket: WebSocket):
                 await _register_fleet_node(client_id, client_info)
                 print(f"[companion] client identified: {client_info}")
 
+            elif msg_type == "chat.multi":
+                asyncio.create_task(_handle_chat_multi(websocket, msg))
+
             elif msg_type == "ping":
                 await websocket.send_text(_msg("pong", {}))
 
@@ -838,3 +841,134 @@ def list_clients():
 def get_emotion():
     """Current emotion state — useful for debugging and external integrations."""
     return _emotion_state.to_dict()
+
+
+# ── Multi-LLM / Agent Personas ──────────────────────────────────────────────
+
+def _get_agents() -> list[dict]:
+    return _state.get("agents", [])
+
+
+def _save_agents(agents: list[dict]) -> None:
+    _state["agents"] = agents
+    _save_state(_state)
+
+
+@router.get("/agents")
+def list_agents():
+    """Return configured agent personas."""
+    return _get_agents()
+
+
+@router.post("/agents")
+def add_agent(body: dict):
+    """Add a new agent persona."""
+    name = body.get("name", "").strip()
+    if not name:
+        return {"error": "name is required"}
+    agents = _get_agents()
+    if any(a["name"] == name for a in agents):
+        return {"error": f"Agent '{name}' already exists"}
+    agent = {
+        "name": name,
+        "model": body.get("model", "gemma3:latest"),
+        "system_prompt": body.get("system_prompt", f"You are {name}."),
+    }
+    agents.append(agent)
+    _save_agents(agents)
+    return {"added": agent}
+
+
+@router.delete("/agents/{name}")
+def remove_agent(name: str):
+    """Remove an agent persona."""
+    agents = _get_agents()
+    agents = [a for a in agents if a["name"] != name]
+    _save_agents(agents)
+    return {"removed": name}
+
+
+async def _handle_chat_multi(ws: WebSocket, msg: dict) -> None:
+    """Multi-agent chat — multiple LLM personas respond to the same input.
+
+    payload: {
+        text: "user message",
+        agents: [{name, model, system_prompt}, ...],  # override or use saved agents
+        pattern: "debate" | "collaborate" | "chain",
+        history: [...]
+    }
+    """
+    payload = msg.get("payload", {})
+    msg_id = msg.get("id", "")
+    user_text = payload.get("text", "").strip()
+    pattern = payload.get("pattern", "collaborate")
+    history = payload.get("history", [])
+
+    # Use provided agents or fall back to saved ones
+    agents = payload.get("agents") or _get_agents()
+    if not agents or len(agents) < 2:
+        await ws.send_text(_msg("chat.response", {
+            "text": "[Error: multi-agent requires at least 2 agents]",
+            "done": True,
+        }, msg_id))
+        return
+
+    if not user_text:
+        return
+
+    ollama_url = _get_service_url("ollama")
+
+    async def _call_agent(agent: dict, prompt: str, ctx_history: list) -> str:
+        messages = [{"role": "system", "content": agent["system_prompt"]}]
+        messages.extend(ctx_history)
+        messages.append({"role": "user", "content": prompt})
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(
+                    f"{ollama_url}/api/chat",
+                    json={"model": agent.get("model", "gemma3:latest"), "messages": messages, "stream": False},
+                )
+                r.raise_for_status()
+                return r.json().get("message", {}).get("content", "")
+        except Exception as e:
+            return f"[{agent['name']} error: {e}]"
+
+    responses = []
+
+    if pattern == "debate":
+        # Both respond independently, then respond to each other
+        tasks = [_call_agent(a, user_text, history) for a in agents[:2]]
+        r1, r2 = await asyncio.gather(*tasks)
+        responses.append({"agent": agents[0]["name"], "text": r1})
+        responses.append({"agent": agents[1]["name"], "text": r2})
+
+        # Round 2: each responds to the other
+        r1b = await _call_agent(agents[0], f"{agents[1]['name']} said: {r2}\n\nRespond to their point.", history)
+        r2b = await _call_agent(agents[1], f"{agents[0]['name']} said: {r1}\n\nRespond to their point.", history)
+        responses.append({"agent": agents[0]["name"], "text": r1b, "round": 2})
+        responses.append({"agent": agents[1]["name"], "text": r2b, "round": 2})
+
+    elif pattern == "chain":
+        # First agent responds, output becomes input for next
+        current_text = user_text
+        for agent in agents:
+            resp = await _call_agent(agent, current_text, history)
+            responses.append({"agent": agent["name"], "text": resp})
+            current_text = resp
+
+    else:  # collaborate
+        # First agent responds, second agent refines
+        r1 = await _call_agent(agents[0], user_text, history)
+        responses.append({"agent": agents[0]["name"], "text": r1})
+        r2 = await _call_agent(agents[1], f"Previous response by {agents[0]['name']}: {r1}\n\nRefine, correct, or add to this response.", history)
+        responses.append({"agent": agents[1]["name"], "text": r2})
+
+    # Send combined response
+    combined = "\n\n".join(f"**{r['agent']}:** {r['text']}" for r in responses)
+    await ws.send_text(_msg("chat.response", {
+        "text": combined,
+        "done": True,
+        "multi": True,
+        "responses": responses,
+        "emotion": _detect_emotion(responses[-1]["text"]),
+    }, msg_id))

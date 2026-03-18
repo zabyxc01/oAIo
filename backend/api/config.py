@@ -9,8 +9,8 @@ from fastapi import APIRouter, HTTPException
 from api.shared import (
     CONTAINER_NAME_RE,
     PATHS_CFG_FILE, ROUTING_CFG_FILE, NODES_CFG_FILE, SERVICES_CFG_FILE,
-    PROFILES_CFG_FILE,
-    config_lock, atomic_write, services_cfg,
+    MODES_CFG_FILE, PROFILES_CFG_FILE,
+    config_lock, atomic_write, services_cfg, modes, enforcement_mode,
     profiles_cfg, save_profiles, apply_profile, deactivate_profile,
     enforcer,
     get_all_paths, repoint, get_storage_stats,
@@ -18,9 +18,107 @@ from api.shared import (
     discover_unregistered,
     set_restart_policy,
 )
-from core import ram_tier
+from core import ram_tier, resources
 
 router = APIRouter()
+
+
+# ── Merged Config ────────────────────────────────────────────────────────────
+
+_COMPANION_STATE_FILE = Path(__file__).parent.parent.parent / "extensions" / "companion" / "companion.json"
+
+
+@router.get("/config", tags=["Config"])
+async def get_merged_config():
+    """Single endpoint returning merged view of all config sections."""
+    result = {}
+
+    # Services
+    try:
+        result["services"] = services_cfg()
+    except Exception:
+        result["services"] = {}
+
+    # Modes
+    try:
+        result["modes"] = modes()
+    except Exception:
+        result["modes"] = {}
+
+    # Paths
+    try:
+        cfg = json.loads(PATHS_CFG_FILE.read_text())
+        result["paths"] = get_all_paths(cfg)
+    except Exception:
+        result["paths"] = []
+
+    # Companion
+    try:
+        if _COMPANION_STATE_FILE.exists():
+            companion = json.loads(_COMPANION_STATE_FILE.read_text())
+            result["companion"] = companion.get("config", {})
+        else:
+            result["companion"] = {}
+    except Exception:
+        result["companion"] = {}
+
+    # System
+    result["system"] = {
+        "enforcement_mode": enforcement_mode(),
+        "enforcer_enabled": enforcer.enforcer_enabled,
+        "vram_ceiling_gb": enforcer.vram_virtual_ceiling_gb,
+        "warn_threshold": resources.WARN_THRESHOLD,
+        "hard_threshold": resources.HARD_THRESHOLD,
+    }
+    try:
+        cfg = json.loads(SERVICES_CFG_FILE.read_text())
+        result["system"]["boot_with_system"] = cfg.get("boot_with_system", True)
+    except Exception:
+        result["system"]["boot_with_system"] = True
+
+    return result
+
+
+@router.patch("/config/{section}", tags=["Config"])
+async def patch_config_section(section: str, body: dict):
+    """Write to the correct config file based on section."""
+    if section == "companion":
+        async with config_lock:
+            if _COMPANION_STATE_FILE.exists():
+                state = json.loads(_COMPANION_STATE_FILE.read_text())
+            else:
+                state = {"config": {}, "clients": {}}
+            allowed = {"ollama_model", "tts_voice", "tts_engine", "tts_compress",
+                        "tts_mode", "ref_audio", "system_prompt"}
+            for k, v in body.items():
+                if k in allowed:
+                    state["config"][k] = v
+            atomic_write(_COMPANION_STATE_FILE, json.dumps(state, indent=2))
+            return {"updated": section, "config": state["config"]}
+
+    elif section == "system":
+        import math
+        if "vram_ceiling_gb" in body:
+            val = body["vram_ceiling_gb"]
+            if val is None or val == 0:
+                enforcer.vram_virtual_ceiling_gb = None
+            else:
+                enforcer.vram_virtual_ceiling_gb = float(val)
+        if "warn_threshold" in body:
+            resources.WARN_THRESHOLD = max(0.0, min(1.0, float(body["warn_threshold"])))
+        if "hard_threshold" in body:
+            resources.HARD_THRESHOLD = max(0.0, min(1.0, float(body["hard_threshold"])))
+        if "enforcer_enabled" in body:
+            enforcer.enforcer_enabled = bool(body["enforcer_enabled"])
+        if "enforcement_mode" in body:
+            async with config_lock:
+                cfg = json.loads(SERVICES_CFG_FILE.read_text())
+                cfg["enforcement_mode"] = body["enforcement_mode"]
+                atomic_write(SERVICES_CFG_FILE, json.dumps(cfg, indent=2))
+        return {"updated": section}
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown config section: {section}. Use: companion, system")
 
 
 # ── Paths ────────────────────────────────────────────────────────────────────

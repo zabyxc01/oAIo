@@ -263,10 +263,12 @@ from api.modes import router as modes_router
 from api.config import router as config_router
 from api.monitoring import router as monitoring_router
 from api.graph import router as graph_router
+from api.service_add import router as service_add_router
 
 app.include_router(services_router)
 app.include_router(modes_router)
 app.include_router(config_router)
+app.include_router(service_add_router)
 app.include_router(monitoring_router)
 app.include_router(graph_router)
 
