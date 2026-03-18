@@ -7,6 +7,7 @@ Endpoints:
   GET  /config        — companion configuration (model, voice, system prompt)
   PATCH /config       — update configuration
   GET  /clients       — list connected clients
+  GET  /emotion       — current emotion state
 """
 import asyncio
 import base64
@@ -28,6 +29,97 @@ _SERVICES_FILE = _EXT_DIR.parent.parent / "config" / "services.json"
 
 # ── State ────────────────────────────────────────────────────────────────────
 _connected_clients: dict[str, dict] = {}  # client_id → {ws, info, connected_at}
+
+
+# ── 14 canonical emotions (Amica research + VRM standard) ────────────────────
+EMOTIONS = frozenset({
+    "happy", "angry", "sad", "surprised", "relaxed", "neutral",
+    "blush", "sleepy", "thinking", "shy", "bored", "serious", "curious", "love",
+})
+
+
+# ── Emotion State Engine ────────────────────────────────────────────────────
+class EmotionState:
+    """Persistent, blended emotion state — not per-message.
+
+    Tracks primary + secondary emotions with intensities, plus a
+    slowly-drifting mood baseline.
+    """
+
+    def __init__(self):
+        self.primary: str = "neutral"
+        self.primary_intensity: float = 0.0
+        self.secondary: str = ""
+        self.secondary_intensity: float = 0.0
+        self.mood: str = "content"           # baseline: content, bored, energetic, melancholy
+        self.mood_momentum: float = 0.0      # -1.0 (declining) to 1.0 (improving)
+        self._history: list[str] = []        # last N emotions for mood drift
+        self._history_max = 20
+
+    def update(self, primary: str, intensity: float = 0.7,
+               secondary: str = "", secondary_intensity: float = 0.0) -> None:
+        """Set new emotion state from a parsed LLM response."""
+        self.primary = primary if primary in EMOTIONS else "neutral"
+        self.primary_intensity = max(0.0, min(1.0, intensity))
+        self.secondary = secondary if secondary in EMOTIONS else ""
+        self.secondary_intensity = max(0.0, min(1.0, secondary_intensity))
+
+        # Track history for mood drift
+        self._history.append(self.primary)
+        if len(self._history) > self._history_max:
+            self._history = self._history[-self._history_max:]
+        self._update_mood()
+
+    def _update_mood(self) -> None:
+        """Drift mood based on recent emotion history."""
+        if len(self._history) < 3:
+            return
+
+        recent = self._history[-10:]
+        positive = sum(1 for e in recent if e in ("happy", "love", "relaxed", "curious"))
+        negative = sum(1 for e in recent if e in ("sad", "angry", "bored"))
+        neutral = len(recent) - positive - negative
+
+        ratio = (positive - negative) / len(recent)
+        self.mood_momentum = max(-1.0, min(1.0, ratio))
+
+        if ratio > 0.3:
+            self.mood = "energetic"
+        elif ratio < -0.3:
+            self.mood = "melancholy"
+        elif neutral > len(recent) * 0.6:
+            self.mood = "bored"
+        else:
+            self.mood = "content"
+
+    def to_dict(self) -> dict:
+        """Serialise for WebSocket payload."""
+        return {
+            "primary": self.primary,
+            "primary_intensity": round(self.primary_intensity, 2),
+            "secondary": self.secondary,
+            "secondary_intensity": round(self.secondary_intensity, 2),
+            "mood": self.mood,
+            "mood_momentum": round(self.mood_momentum, 2),
+        }
+
+
+# Global emotion state (shared across all clients for now)
+_emotion_state = EmotionState()
+
+
+# ── Config ───────────────────────────────────────────────────────────────────
+
+_EMOTION_TAG_INSTRUCTION = (
+    "IMPORTANT: Begin EVERY response with an emotion tag in this exact format: "
+    "[emotion:intensity] where emotion is one of: happy, angry, sad, surprised, "
+    "relaxed, neutral, blush, sleepy, thinking, shy, bored, serious, curious, love "
+    "and intensity is a decimal from 0.0 to 1.0 indicating strength. "
+    "You may optionally add a second tag for blended emotions. "
+    "Examples: [happy:0.8] [curious:0.3] Hey that's really cool! | "
+    "[sad:0.6] I'm sorry to hear that. | [thinking:0.4] Hmm let me consider that. "
+    "Never explain the tags. They control your avatar's facial expression."
+)
 
 
 def _load_state() -> dict:
@@ -61,8 +153,6 @@ _state = _load_state()
 
 # ── Service URL resolution ───────────────────────────────────────────────────
 def _get_service_url(service_name: str) -> str:
-    """Resolve a service URL from oAIo's services config.
-    Uses Docker container names since we're running inside the Docker network."""
     try:
         cfg = json.loads(_SERVICES_FILE.read_text())
         svc = cfg.get("services", {}).get(service_name, {})
@@ -72,7 +162,6 @@ def _get_service_url(service_name: str) -> str:
             return f"http://{container}:{port}"
     except Exception:
         pass
-    # Fallback defaults (Docker container names)
     defaults = {
         "ollama": "http://ollama:11434",
         "kokoro-tts": "http://kokoro-tts:8000",
@@ -83,7 +172,6 @@ def _get_service_url(service_name: str) -> str:
 
 # ── Fleet integration ────────────────────────────────────────────────────────
 async def _register_fleet_node(client_id: str, client_info: dict) -> None:
-    """Register a companion client as a thin-client in fleet via its REST API."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.post(
@@ -103,9 +191,7 @@ async def _register_fleet_node(client_id: str, client_info: dict) -> None:
 
 
 async def _deregister_fleet_node(client_id: str) -> None:
-    """Mark companion client as unreachable in fleet."""
     try:
-        # Find node by URL pattern
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get("http://127.0.0.1:9000/extensions/fleet/nodes")
             if r.status_code != 200:
@@ -132,15 +218,20 @@ def _msg(msg_type: str, payload: dict, ref_id: str | None = None) -> str:
     })
 
 
-# ── Emotion detection ────────────────────────────────────────────────────────
-# Simple keyword-based emotion detection. Maps to VRM expression presets:
-# happy, angry, sad, surprised, relaxed, neutral
+# ── Emotion detection ───────────────────────────────────────────────────────
+# Priority: [emotion:intensity] tags > (stage directions) > keyword fallback
+
+# Regex for [emotion:intensity] tags — captures emotion and optional intensity
+_EMOTION_TAG_RE = re.compile(r'\[(\w+):([\d.]+)\]')
+
+# Regex for bare bracket tags [happy] without intensity
+_BARE_TAG_RE = re.compile(r'\[(\w+)\]')
 
 _EMOTION_KEYWORDS = {
     "happy": [
-        "haha", "lol", "😄", "😊", "😁", "🤣", "glad", "awesome", "great",
-        "love", "yay", "nice", "wonderful", "fantastic", "excited", "fun",
-        "enjoy", "happy", "laugh", "hehe", "sweet", "cool", "amazing",
+        "haha", "lol", "glad", "awesome", "great", "love", "yay", "nice",
+        "wonderful", "fantastic", "excited", "fun", "enjoy", "happy", "laugh",
+        "hehe", "sweet", "cool", "amazing",
     ],
     "angry": [
         "angry", "furious", "mad", "annoyed", "frustrated", "ugh",
@@ -148,67 +239,29 @@ _EMOTION_KEYWORDS = {
     ],
     "sad": [
         "sad", "sorry", "unfortunately", "miss", "lonely", "cry",
-        "disappointing", "sigh", "😢", "😞", "😔", "heartbreaking",
+        "disappointing", "sigh", "heartbreaking",
     ],
     "surprised": [
         "wow", "whoa", "oh!", "really?", "seriously?", "no way",
-        "unexpected", "surprised", "😮", "😲", "shocking", "what?!",
+        "unexpected", "surprised", "shocking", "what?!",
     ],
     "relaxed": [
         "chill", "relax", "calm", "peaceful", "cozy", "comfy",
         "easy", "mellow", "gentle", "soft", "quiet",
     ],
-    "blush": [
-        "blush", "embarrass", "shy", "fluster", "cute",
-    ],
-    "sleepy": [
-        "sleepy", "tired", "yawn", "exhausted", "drowsy", "nap", "bed",
-    ],
+    "blush": ["blush", "embarrass", "fluster"],
+    "shy": ["shy", "nervous", "timid"],
+    "sleepy": ["sleepy", "tired", "yawn", "exhausted", "drowsy", "nap", "bed"],
     "thinking": [
-        "think", "wonder", "hmm", "ponder", "curious", "consider",
+        "think", "wonder", "hmm", "ponder", "consider",
         "puzzl", "confus", "interesting",
     ],
+    "curious": ["curious", "fascinating", "intriguing", "what if"],
+    "bored": ["bored", "boring", "dull", "meh", "whatever"],
+    "serious": ["serious", "important", "listen", "careful", "warning"],
+    "love": ["love", "adore", "darling", "sweetheart", "dear", "heart"],
 }
 
-
-def _detect_emotion(text: str) -> str:
-    """Detect emotion from response text.
-
-    Parses gemma's natural stage directions like (smiling), (puzzled look),
-    (laughs), bracket tags like [happy], and falls back to keyword matching.
-    """
-    text_stripped = text.strip()
-
-    # Try parenthetical stage directions: (smiling), (puzzled look on face), etc.
-    paren_match = re.match(r'^\(([^)]+)\)', text_stripped)
-    if paren_match:
-        direction = paren_match.group(1).lower()
-        # Map common stage directions to VRM expressions
-        for keyword, emotion in _STAGE_DIRECTION_MAP.items():
-            if keyword in direction:
-                return emotion
-
-    # Try bracket tags: [happy], [sad], etc.
-    bracket_match = re.match(r'^\[(\w+)\]', text_stripped)
-    if bracket_match:
-        tag = bracket_match.group(1).lower()
-        if tag in _BRACKET_TAG_MAP:
-            return _BRACKET_TAG_MAP[tag]
-
-    # Fallback: keyword matching on full text
-    text_lower = text.lower()
-    scores = {emotion: 0 for emotion in _EMOTION_KEYWORDS}
-    for emotion, keywords in _EMOTION_KEYWORDS.items():
-        for kw in keywords:
-            if kw in text_lower:
-                scores[emotion] += 1
-    best = max(scores, key=scores.get)
-    if scores[best] > 0:
-        return best
-    return "neutral"
-
-
-# Stage direction keywords → VRM expression mapping
 _STAGE_DIRECTION_MAP = {
     "smile": "happy", "smiling": "happy", "grin": "happy", "beam": "happy",
     "laugh": "happy", "giggle": "happy", "chuckle": "happy",
@@ -222,42 +275,141 @@ _STAGE_DIRECTION_MAP = {
     "wide eye": "surprised", "stunned": "surprised",
     "calm": "relaxed", "relax": "relaxed", "peaceful": "relaxed",
     "gentle": "relaxed", "warm": "relaxed", "nod": "relaxed",
-    "blush": "blush", "fluster": "blush", "shy": "blush",
-    "embarrass": "blush", "cute": "blush",
+    "blush": "blush", "fluster": "blush",
+    "shy": "shy", "embarrass": "shy", "nervous": "shy",
     "sleepy": "sleepy", "yawn": "sleepy", "tired": "sleepy",
     "drowsy": "sleepy", "exhausted": "sleepy",
     "think": "thinking", "ponder": "thinking", "hmm": "thinking",
     "consider": "thinking", "wonder": "thinking", "puzzl": "thinking",
-    "confused": "thinking", "curious": "thinking", "tilt": "thinking",
-    "thoughtful": "thinking",
+    "confused": "thinking", "tilt": "thinking", "thoughtful": "thinking",
+    "curious": "curious", "intrigued": "curious", "fascinated": "curious",
+    "bored": "bored", "uninterested": "bored",
+    "serious": "serious", "stern": "serious", "firm": "serious",
+    "loving": "love", "adoring": "love", "affectionate": "love",
+    "cute": "love",
 }
 
-_BRACKET_TAG_MAP = {
-    "happy": "happy", "excited": "happy", "playful": "happy",
-    "sad": "sad", "worried": "sad",
-    "angry": "angry",
-    "surprised": "surprised",
-    "relaxed": "relaxed",
-    "blush": "blush", "shy": "blush", "embarrassed": "blush",
-    "sleepy": "sleepy", "tired": "sleepy",
-    "thinking": "thinking", "thoughtful": "thinking", "curious": "thinking",
-    "neutral": "neutral",
-}
+
+def _detect_emotion(text: str) -> dict:
+    """Detect emotion from LLM response text.
+
+    Returns dict with primary, primary_intensity, secondary, secondary_intensity.
+    Detection priority: [emotion:intensity] tags > (stage directions) > keywords.
+    """
+    result = {
+        "primary": "neutral",
+        "primary_intensity": 0.5,
+        "secondary": "",
+        "secondary_intensity": 0.0,
+    }
+
+    text_stripped = text.strip()
+
+    # 1. Try [emotion:intensity] tags (highest priority — ChatVRM pattern)
+    tags = _EMOTION_TAG_RE.findall(text_stripped)
+    if tags:
+        emotion, intensity = tags[0]
+        emotion = emotion.lower()
+        if emotion in EMOTIONS:
+            result["primary"] = emotion
+            result["primary_intensity"] = max(0.0, min(1.0, float(intensity)))
+        if len(tags) > 1:
+            emotion2, intensity2 = tags[1]
+            emotion2 = emotion2.lower()
+            if emotion2 in EMOTIONS:
+                result["secondary"] = emotion2
+                result["secondary_intensity"] = max(0.0, min(1.0, float(intensity2)))
+        _emotion_state.update(
+            result["primary"], result["primary_intensity"],
+            result["secondary"], result["secondary_intensity"],
+        )
+        return result
+
+    # 2. Try bare bracket tags [happy] (without intensity)
+    bare_tags = _BARE_TAG_RE.findall(text_stripped)
+    if bare_tags:
+        tag = bare_tags[0].lower()
+        if tag in EMOTIONS:
+            result["primary"] = tag
+            result["primary_intensity"] = 0.7
+            _emotion_state.update(tag, 0.7)
+            return result
+
+    # 3. Try parenthetical stage directions: (smiling), (puzzled look), etc.
+    paren_match = re.match(r'^\(([^)]+)\)', text_stripped)
+    if paren_match:
+        direction = paren_match.group(1).lower()
+        for keyword, emotion in _STAGE_DIRECTION_MAP.items():
+            if keyword in direction:
+                result["primary"] = emotion
+                result["primary_intensity"] = 0.6
+                _emotion_state.update(emotion, 0.6)
+                return result
+
+    # 4. Fallback: keyword scoring
+    text_lower = text.lower()
+    scores: dict[str, int] = {}
+    for emotion, keywords in _EMOTION_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw in text_lower)
+        if score > 0:
+            scores[emotion] = score
+
+    if scores:
+        sorted_emotions = sorted(scores.items(), key=lambda x: -x[1])
+        best_emotion, best_score = sorted_emotions[0]
+        result["primary"] = best_emotion
+        result["primary_intensity"] = min(0.3 + best_score * 0.15, 0.9)
+        if len(sorted_emotions) > 1:
+            second_emotion, second_score = sorted_emotions[1]
+            result["secondary"] = second_emotion
+            result["secondary_intensity"] = min(0.2 + second_score * 0.1, 0.5)
+        _emotion_state.update(
+            result["primary"], result["primary_intensity"],
+            result["secondary"], result["secondary_intensity"],
+        )
+        return result
+
+    # 5. Nothing detected — neutral
+    _emotion_state.update("neutral", 0.3)
+    return result
+
+
+def _strip_emotion_tags(text: str) -> str:
+    """Remove [emotion:intensity] tags from text."""
+    return _EMOTION_TAG_RE.sub('', text).strip()
+
+
+def _strip_bare_tags(text: str) -> str:
+    """Remove bare [emotion] tags from text."""
+    return _BARE_TAG_RE.sub('', text).strip()
 
 
 def _extract_stage_directions(text: str) -> list[str]:
-    """Extract all parenthetical stage directions from the text."""
     return re.findall(r'\(([^)]+)\)', text)
 
 
 def _strip_stage_directions(text: str) -> str:
-    """Remove parenthetical stage directions from text for TTS (so she doesn't say them aloud)."""
     return re.sub(r'\([^)]+\)\s*', '', text).strip()
+
+
+def _clean_for_tts(text: str) -> str:
+    """Remove all markup (emotion tags, stage directions) for TTS."""
+    text = _strip_emotion_tags(text)
+    text = _strip_bare_tags(text)
+    text = _strip_stage_directions(text)
+    return text.strip()
+
+
+def _clean_for_display(text: str) -> str:
+    """Remove emotion tags but keep stage directions for chat display."""
+    text = _strip_emotion_tags(text)
+    text = _strip_bare_tags(text)
+    return text.strip()
 
 
 # ── Pipeline handlers ────────────────────────────────────────────────────────
 async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
-    """Process chat.request: call ollama, then TTS, send both back."""
+    """Process chat.request: call ollama, detect emotion, TTS, send back."""
     payload = msg.get("payload", {})
     msg_id = msg.get("id", "")
     user_text = payload.get("text", "").strip()
@@ -269,8 +421,9 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
     cfg = _state["config"]
     ollama_url = _get_service_url("ollama")
 
-    # Build messages array
-    messages = [{"role": "system", "content": cfg["system_prompt"]}]
+    # Build messages array with emotion tag instruction
+    system_prompt = cfg["system_prompt"] + "\n\n" + _EMOTION_TAG_INSTRUCTION
+    messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_text})
 
@@ -295,40 +448,42 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
         }, msg_id))
         return
 
-    # Detect emotion from response text
-    emotion = _detect_emotion(response_text)
+    # Detect emotion (updates global _emotion_state)
+    emotion_data = _detect_emotion(response_text)
 
-    # Strip stage directions for TTS (don't say them aloud)
-    # but keep full text in chat response so user sees the performance
-    tts_text = _strip_stage_directions(response_text)
+    # Clean text for display (remove emotion tags, keep stage directions)
+    display_text = _clean_for_display(response_text)
+    # Clean text for TTS (remove all markup)
+    tts_text = _clean_for_tts(response_text)
+
     directions = _extract_stage_directions(response_text)
     if directions:
         print(f"[companion] stage directions: {directions}")
 
+    print(f"[companion] emotion: {emotion_data['primary']}:{emotion_data['primary_intensity']}"
+          + (f" + {emotion_data['secondary']}:{emotion_data['secondary_intensity']}" if emotion_data['secondary'] else "")
+          + f" | mood: {_emotion_state.mood}")
+
     tts_mode = cfg.get("tts_mode", "batch")
 
+    # Build response with full emotion payload
+    chat_payload = {
+        "text": display_text,
+        "done": True,
+        "emotion": emotion_data,  # Full emotion dict instead of just string
+    }
+
     if tts_mode == "stream" and tts_text:
-        await ws.send_text(_msg("chat.response", {
-            "text": response_text,
-            "done": True,
-            "emotion": emotion,
-        }, msg_id))
+        await ws.send_text(_msg("chat.response", chat_payload, msg_id))
         await _stream_tts_sentences(ws, tts_text, msg_id, cfg)
     else:
-        await ws.send_text(_msg("chat.response", {
-            "text": response_text,
-            "done": True,
-            "emotion": emotion,
-        }, msg_id))
+        await ws.send_text(_msg("chat.response", chat_payload, msg_id))
         if tts_text:
             await _generate_and_send_tts(ws, tts_text, msg_id)
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Split text into sentences for streaming TTS."""
-    # Split on sentence-ending punctuation followed by space or end
     parts = re.split(r'(?<=[.!?])\s+', text.strip())
-    # Merge very short fragments (under 10 chars) with the previous sentence
     merged = []
     for part in parts:
         part = part.strip()
@@ -342,22 +497,13 @@ def _split_sentences(text: str) -> list[str]:
 
 
 async def _stream_tts_sentences(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
-    """Split text into sentences and TTS each one, sending audio chunks as they're ready."""
     sentences = _split_sentences(text)
     print(f"[companion] Streaming {len(sentences)} sentences")
 
     for i, sentence in enumerate(sentences):
         try:
             tts_engine = cfg.get("tts_engine", "kokoro")
-            if tts_engine == "indextts":
-                audio = await _generate_audio_bytes(sentence, cfg, "indextts")
-            elif tts_engine == "oaudio":
-                audio = await _generate_audio_bytes(sentence, cfg, "oaudio")
-            elif tts_engine == "f5":
-                audio = await _generate_audio_bytes(sentence, cfg, "f5")
-            else:
-                audio = await _generate_audio_bytes(sentence, cfg, "kokoro")
-
+            audio = await _generate_audio_bytes(sentence, cfg, tts_engine)
             if audio:
                 await _send_audio(ws, audio, f"{ref_id}_chunk{i}", cfg)
         except Exception as e:
@@ -365,7 +511,6 @@ async def _stream_tts_sentences(ws: WebSocket, text: str, ref_id: str, cfg: dict
 
 
 async def _generate_audio_bytes(text: str, cfg: dict, engine: str) -> bytes | None:
-    """Generate TTS audio bytes without sending — for streaming use."""
     try:
         if engine == "kokoro":
             tts_url = _get_service_url("kokoro-tts")
@@ -379,7 +524,6 @@ async def _generate_audio_bytes(text: str, cfg: dict, engine: str) -> bytes | No
 
         elif engine == "indextts":
             tts_url = _get_service_url("indextts")
-            from pathlib import Path
             ref_path = Path(cfg.get("ref_audio", "/mnt/oaio/ref-audio/avatar_voice.wav"))
             if not ref_path.exists():
                 return None
@@ -403,7 +547,6 @@ async def _generate_audio_bytes(text: str, cfg: dict, engine: str) -> bytes | No
                 return r.content
 
         elif engine == "f5":
-            from pathlib import Path
             ref_path = Path(cfg.get("ref_audio", "/mnt/oaio/ref-audio/avatar_voice.wav"))
             if not ref_path.exists():
                 return None
@@ -421,10 +564,8 @@ async def _generate_audio_bytes(text: str, cfg: dict, engine: str) -> bytes | No
 
 
 async def _generate_and_send_tts(ws: WebSocket, text: str, ref_id: str) -> None:
-    """Generate TTS audio and send to client. Supports kokoro and indextts engines."""
     cfg = _state["config"]
     tts_engine = cfg.get("tts_engine", "kokoro")
-
     try:
         if tts_engine == "indextts":
             await _tts_indextts(ws, text, ref_id, cfg)
@@ -439,7 +580,6 @@ async def _generate_and_send_tts(ws: WebSocket, text: str, ref_id: str) -> None:
 
 
 async def _send_audio(ws: WebSocket, audio_bytes: bytes, ref_id: str, cfg: dict) -> None:
-    """Send audio to client, compressing if needed based on tts_compress setting."""
     compress = cfg.get("tts_compress", "always")
     should_compress = (compress == "always") or (compress == "auto" and len(audio_bytes) > 1_000_000)
 
@@ -460,24 +600,17 @@ async def _send_audio(ws: WebSocket, audio_bytes: bytes, ref_id: str, cfg: dict)
 
 
 async def _tts_kokoro(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
-    """Kokoro TTS — fast, no voice cloning."""
     tts_url = _get_service_url("kokoro-tts")
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(
             f"{tts_url}/v1/audio/speech",
-            json={
-                "input": text,
-                "voice": cfg.get("tts_voice", "af_heart"),
-                "response_format": "wav",
-            },
+            json={"input": text, "voice": cfg.get("tts_voice", "af_heart"), "response_format": "wav"},
         )
         r.raise_for_status()
-
     await _send_audio(ws, r.content, ref_id, cfg)
 
 
 async def _compress_wav_to_mp3(wav_bytes: bytes) -> bytes:
-    """Compress WAV to MP3 using ffmpeg — ~10x smaller for WebSocket transfer."""
     import subprocess
     proc = subprocess.run(
         ["ffmpeg", "-i", "pipe:0", "-f", "mp3", "-ab", "48k", "-ar", "24000", "-ac", "1", "pipe:1"],
@@ -485,23 +618,19 @@ async def _compress_wav_to_mp3(wav_bytes: bytes) -> bytes:
     )
     if proc.returncode != 0:
         print(f"[companion] ffmpeg compress failed: {proc.stderr[:200]}")
-        return wav_bytes  # fallback to raw WAV
+        return wav_bytes
     return proc.stdout
 
 
 async def _tts_indextts(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
-    """IndexTTS — voice cloning with reference audio."""
     tts_url = _get_service_url("indextts")
     ref_audio_path = cfg.get("ref_audio", "/mnt/oaio/ref-audio/avatar_voice.wav")
-
-    from pathlib import Path
     ref_path = Path(ref_audio_path)
     if not ref_path.exists():
         print(f"[companion] IndexTTS ref audio not found: {ref_audio_path}")
         return
 
     ref_bytes = ref_path.read_bytes()
-
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(
             f"{tts_url}/synthesize",
@@ -510,28 +639,18 @@ async def _tts_indextts(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> Non
         )
         r.raise_for_status()
 
-    # Compress to MP3 then convert back to WAV for Godot playback
-    # This shrinks the WebSocket payload dramatically
     import subprocess
     proc = subprocess.run(
         ["ffmpeg", "-i", "pipe:0", "-f", "wav", "-ar", "24000", "-ac", "1",
          "-acodec", "pcm_s16le", "-sample_fmt", "s16", "pipe:1"],
         input=r.content, capture_output=True,
     )
-    if proc.returncode == 0:
-        wav_bytes = proc.stdout
-    else:
-        wav_bytes = r.content
-
+    wav_bytes = proc.stdout if proc.returncode == 0 else r.content
     await _send_audio(ws, wav_bytes, ref_id, cfg)
 
 
 async def _tts_oaudio(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
-    """oAudio pipeline — kokoro → RVC voice conversion → output."""
-    import io
-    import subprocess
-
-    oaudio_url = "http://localhost:8002"  # oAudio runs in the same container
+    oaudio_url = "http://localhost:8002"
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(
             f"{oaudio_url}/speak",
@@ -543,7 +662,6 @@ async def _tts_oaudio(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
         )
         r.raise_for_status()
 
-    # oAudio returns MP3 — send directly as MP3 (Godot handles it)
     audio_b64 = base64.b64encode(r.content).decode("ascii")
     print(f"[companion] oAudio: sending {len(audio_b64)//1024}KB (mp3)")
     await ws.send_text(_msg("tts.audio", {
@@ -554,9 +672,6 @@ async def _tts_oaudio(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
 
 
 async def _tts_f5(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
-    """F5-TTS via oAudio /clone — voice cloning with auto-transcription."""
-    from pathlib import Path
-
     oaudio_url = "http://localhost:8002"
     ref_audio_path = cfg.get("ref_audio", "/mnt/oaio/ref-audio/avatar_voice.wav")
     ref_path = Path(ref_audio_path)
@@ -565,7 +680,6 @@ async def _tts_f5(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
         return
 
     ref_bytes = ref_path.read_bytes()
-
     async with httpx.AsyncClient(timeout=180.0) as client:
         r = await client.post(
             f"{oaudio_url}/clone",
@@ -573,12 +687,10 @@ async def _tts_f5(ws: WebSocket, text: str, ref_id: str, cfg: dict) -> None:
             data={"target_text": text},
         )
         r.raise_for_status()
-
     await _send_audio(ws, r.content, ref_id, cfg)
 
 
 async def _handle_stt_audio(ws: WebSocket, msg: dict) -> None:
-    """Process stt.audio: forward to faster-whisper, return transcript."""
     payload = msg.get("payload", {})
     msg_id = msg.get("id", "")
     audio_b64 = payload.get("audio_b64", "")
@@ -606,7 +718,6 @@ async def _handle_stt_audio(ws: WebSocket, msg: dict) -> None:
 
     await ws.send_text(_msg("stt.transcript", {"text": text}, msg_id))
 
-    # Auto-chain: if we got a transcript, run it through chat
     if text and payload.get("auto_chat", True):
         chat_msg = {
             "type": "chat.request",
@@ -634,7 +745,6 @@ async def companion_ws(websocket: WebSocket):
 
     print(f"[companion] client connected: {client_id}")
 
-    # Send initial state sync
     cfg = _state["config"]
     await websocket.send_text(_msg("state.sync", {
         "hub_status": "online",
@@ -647,6 +757,7 @@ async def companion_ws(websocket: WebSocket):
             "model": cfg["ollama_model"],
             "voice": cfg["tts_voice"],
         },
+        "emotion": _emotion_state.to_dict(),
     }))
 
     try:
@@ -666,7 +777,6 @@ async def companion_ws(websocket: WebSocket):
                 asyncio.create_task(_handle_stt_audio(websocket, msg))
 
             elif msg_type == "state.sync":
-                # Client reporting its capabilities
                 payload = msg.get("payload", {})
                 client_info.update({
                     "platform": payload.get("platform", "unknown"),
@@ -722,3 +832,9 @@ def list_clients():
         }
         for cid, data in _connected_clients.items()
     ]
+
+
+@router.get("/emotion")
+def get_emotion():
+    """Current emotion state — useful for debugging and external integrations."""
+    return _emotion_state.to_dict()
