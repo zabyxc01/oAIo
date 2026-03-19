@@ -20,6 +20,23 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+# Extension loader uses spec_from_file_location (not a package),
+# so we import persona.py via direct path.
+import importlib.util as _ilu
+_persona_spec = _ilu.spec_from_file_location(
+    "persona", str(Path(__file__).parent / "persona.py")
+)
+_persona_mod = _ilu.module_from_spec(_persona_spec)
+_persona_spec.loader.exec_module(_persona_mod)
+PersonaMatrix = _persona_mod.PersonaMatrix
+
+_knowledge_spec = _ilu.spec_from_file_location(
+    "knowledge", str(Path(__file__).parent / "knowledge.py")
+)
+_knowledge_mod = _ilu.module_from_spec(_knowledge_spec)
+_knowledge_spec.loader.exec_module(_knowledge_mod)
+KnowledgeClient = _knowledge_mod.KnowledgeClient
+
 router = APIRouter()
 
 # ── Paths ────────────────────────────────────────────────────────────────────
@@ -107,6 +124,12 @@ class EmotionState:
 # Global emotion state (shared across all clients for now)
 _emotion_state = EmotionState()
 
+# ── Persona Matrix ──────────────────────────────────────────────────────────
+_persona_matrix = PersonaMatrix()
+_persona_priority: int = 3     # 0=full persona, 10=work mode
+_persona_enabled: bool = False  # OFF by default — must be explicitly enabled
+_knowledge_client: KnowledgeClient | None = None
+
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
@@ -130,7 +153,7 @@ def _load_state() -> dict:
             pass
     return {
         "config": {
-            "ollama_model": "gemma3:latest",
+            "ollama_model": "gemma3:latest",  # default model
             "tts_voice": "af_heart",
             "system_prompt": (
                 "Your name is Kira. You are a desktop companion AI with an anime avatar. "
@@ -149,6 +172,40 @@ def _save_state(state: dict) -> None:
 
 
 _state = _load_state()
+
+
+# ── Persona init ────────────────────────────────────────────────────────────
+_persona_init_done = False
+
+
+async def _ensure_persona() -> None:
+    """Load persona if enabled in config. Only tries once per startup."""
+    global _persona_matrix, _persona_enabled, _persona_priority, _persona_init_done, _knowledge_client
+    if _persona_init_done:
+        return
+    _persona_init_done = True
+
+    cfg = _state.get("config", {})
+    _persona_enabled = cfg.get("persona_enabled", False)
+    _persona_priority = cfg.get("persona_priority", 3)
+
+    # Init knowledge client (available regardless of persona state)
+    webui_key = cfg.get("webui_api_key", "")
+    if webui_key:
+        _knowledge_client = KnowledgeClient(api_key=webui_key)
+        print(f"[companion] knowledge client ready")
+
+    if not _persona_enabled:
+        print("[companion] persona matrix disabled")
+        return
+
+    persona_id = cfg.get("persona", "kira")
+    ok = await _persona_matrix.load(persona_id)
+    if ok:
+        print(f"[companion] persona matrix loaded: {persona_id}")
+    else:
+        print(f"[companion] persona matrix failed to load: {persona_id}")
+        _persona_enabled = False
 
 
 # ── Service URL resolution ───────────────────────────────────────────────────
@@ -422,17 +479,77 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
     cfg = _state["config"]
     ollama_url = _get_service_url("ollama")
 
-    # Build messages array with emotion tag instruction
-    system_prompt = cfg["system_prompt"] + "\n\n" + _EMOTION_TAG_INSTRUCTION
-    # Append ambient context to system prompt (NOT as user message)
-    if context:
-        system_prompt += "\n\n--- Current situation ---\n" + context
+    # ── Persona-aware prompt building ──
+    await _ensure_persona()
+    # ── Knowledge RAG (query first so we know whether to skip narrative) ──
+    # Tuning params from config (adjustable via PATCH /config)
+    rag_chunk_chars = cfg.get("rag_chunk_chars", 800)
+    rag_max_results = cfg.get("rag_max_results", 3)
+    rag_min_priority = cfg.get("rag_min_priority", 2)
+
+    _knowledge_context = ""
+    if _knowledge_client and _persona_enabled and _persona_priority >= rag_min_priority:
+        try:
+            results = await _knowledge_client.query(user_text, n_results=rag_max_results)
+            if results:
+                docs = "\n".join(f"- {r.text[:rag_chunk_chars]}" for r in results if r.text)
+                if docs:
+                    _knowledge_context = docs
+        except Exception as e:
+            print(f"[companion] knowledge query failed: {e}")
+
+    if _persona_enabled and _persona_matrix._loaded:
+        system_prompt = _persona_matrix.build_prompt(
+            priority=_persona_priority,
+            observation=context,
+            skip_narrative=bool(_knowledge_context),
+        )
+    else:
+        # Static prompt — persona disabled or not loaded
+        system_prompt = cfg["system_prompt"]
+        if context:
+            system_prompt += "\n\n--- Current situation ---\n" + context
+
+    system_prompt += "\n\n" + _EMOTION_TAG_INSTRUCTION
     messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
+
+    # Sanitize history: remove consecutive same-role messages (broken turns)
+    clean_history = []
+    for msg in history:
+        if clean_history and msg.get("role") == clean_history[-1].get("role"):
+            clean_history[-1] = msg  # keep latest of consecutive same-role
+        else:
+            clean_history.append(msg)
+
+    if _knowledge_context:
+        # Trim history, remove trailing user msg (we replace with knowledge version)
+        trimmed = clean_history[-4:] if len(clean_history) > 4 else list(clean_history)
+        if trimmed and trimmed[-1].get("role") == "user":
+            trimmed = trimmed[:-1]
+        messages.extend(trimmed)
+        messages.append({"role": "user", "content": (
+            "[Reference documents — answer using these facts exactly as written]\n"
+            + _knowledge_context
+            + "\n\n[Question]\n" + user_text
+        )})
+    else:
+        messages.extend(clean_history)
+        messages.append({"role": "user", "content": user_text})
 
     # Call ollama
     try:
+        # LLM options from config (adjustable via PATCH /config)
+        opts = {"num_ctx": cfg.get("llm_num_ctx", 4096)}
+        if _knowledge_context:
+            opts["temperature"] = cfg.get("rag_temperature", 0.2)
+        else:
+            temp = cfg.get("llm_temperature")
+            if temp is not None:
+                opts["temperature"] = temp
+        # Debug: dump what we're sending
+        print(f"[companion] DEBUG: {len(messages)} messages, opts={opts}, knowledge={'YES' if _knowledge_context else 'NO'}")
+        for i, m in enumerate(messages):
+            print(f"[companion] DEBUG msg[{i}] role={m['role']} len={len(m['content'])} preview={m['content'][:80]}")
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
                 f"{ollama_url}/api/chat",
@@ -440,6 +557,7 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
                     "model": cfg["ollama_model"],
                     "messages": messages,
                     "stream": False,
+                    "options": opts,
                 },
             )
             r.raise_for_status()
@@ -468,13 +586,19 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
           + (f" + {emotion_data['secondary']}:{emotion_data['secondary_intensity']}" if emotion_data['secondary'] else "")
           + f" | mood: {_emotion_state.mood}")
 
+    # ── Record exchanges in persona narrative ──
+    if _persona_enabled and _persona_matrix._loaded:
+        _persona_matrix.record_exchange("user", user_text)
+        _persona_matrix.record_exchange("assistant", display_text, emotion_data["primary"])
+
     tts_mode = cfg.get("tts_mode", "batch")
 
     # Build response with full emotion payload
     chat_payload = {
         "text": display_text,
         "done": True,
-        "emotion": emotion_data,  # Full emotion dict instead of just string
+        "emotion": emotion_data,
+        "factual": bool(_knowledge_context),  # client can hardcode animations
     }
 
     if tts_mode == "stream" and tts_text:
@@ -750,6 +874,7 @@ async def companion_ws(websocket: WebSocket):
     print(f"[companion] client connected: {client_id}")
 
     cfg = _state["config"]
+    await _ensure_persona()
     await websocket.send_text(_msg("state.sync", {
         "hub_status": "online",
         "services": {
@@ -762,6 +887,11 @@ async def companion_ws(websocket: WebSocket):
             "voice": cfg["tts_voice"],
         },
         "emotion": _emotion_state.to_dict(),
+        "persona": {
+            "enabled": _persona_enabled,
+            "priority": _persona_priority,
+            **(_persona_matrix.get_status() if _persona_matrix._loaded else {}),
+        },
     }))
 
     try:
@@ -820,7 +950,14 @@ def get_config():
 @router.patch("/config")
 def patch_config(body: dict):
     cfg = _state["config"]
-    allowed = {"ollama_model", "tts_voice", "tts_engine", "tts_compress", "tts_mode", "ref_audio", "system_prompt", "vision_model"}
+    allowed = {
+        "ollama_model", "tts_voice", "tts_engine", "tts_compress", "tts_mode",
+        "ref_audio", "system_prompt", "vision_model", "webui_api_key",
+        # LLM tuning
+        "llm_num_ctx", "llm_temperature",
+        # RAG tuning
+        "rag_chunk_chars", "rag_max_results", "rag_min_priority", "rag_temperature",
+    }
     updated = {}
     for key in allowed:
         if key in body:
@@ -910,9 +1047,18 @@ async def _handle_vision_analyze(ws: WebSocket, msg: dict) -> None:
     cfg = _state["config"]
     ollama_url = _get_service_url("ollama")
 
-    system_prompt = cfg["system_prompt"] + "\n\n" + _EMOTION_TAG_INSTRUCTION
-    if context:
-        system_prompt += "\n\n--- Current situation ---\n" + context
+    # ── Persona-aware prompt for vision too ──
+    await _ensure_persona()
+    if _persona_enabled and _persona_matrix._loaded:
+        system_prompt = _persona_matrix.build_prompt(
+            priority=_persona_priority,
+            observation=context,
+        )
+    else:
+        system_prompt = cfg["system_prompt"]
+        if context:
+            system_prompt += "\n\n--- Current situation ---\n" + context
+    system_prompt += "\n\n" + _EMOTION_TAG_INSTRUCTION
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -1034,3 +1180,294 @@ async def _handle_chat_multi(ws: WebSocket, msg: dict) -> None:
         "responses": responses,
         "emotion": _detect_emotion(responses[-1]["text"]),
     }, msg_id))
+
+
+# ── Persona Matrix REST endpoints ───────────────────────────────────────────
+
+@router.get("/persona")
+async def get_persona():
+    """Current persona state — enabled, identity, mood, narrative stats, priority."""
+    await _ensure_persona()
+    return {
+        "enabled": _persona_enabled,
+        "priority": _persona_priority,
+        **(_persona_matrix.get_status() if _persona_matrix._loaded else {"loaded": False}),
+    }
+
+
+@router.get("/persona/list")
+def list_personas():
+    """List all available persona files."""
+    return _persona_matrix.list_personas()
+
+
+@router.post("/persona/enable")
+async def enable_persona(body: dict):
+    """Enable persona and load it. Body: {"id": "kira"} (optional, defaults to config or kira)"""
+    global _persona_matrix, _persona_enabled, _persona_init_done
+    persona_id = body.get("id", "").strip() or _state.get("config", {}).get("persona", "kira")
+
+    # Save current state if switching
+    if _persona_matrix._loaded and _persona_matrix.persona_id != persona_id:
+        _persona_matrix.save_state()
+
+    if not _persona_matrix._loaded or _persona_matrix.persona_id != persona_id:
+        new_matrix = PersonaMatrix()
+        ok = await new_matrix.load(persona_id)
+        if not ok:
+            return {"error": f"Failed to load persona: {persona_id}"}
+        _persona_matrix = new_matrix
+
+    _persona_enabled = True
+    _persona_init_done = True
+    _state["config"]["persona_enabled"] = True
+    _state["config"]["persona"] = persona_id
+    _save_state(_state)
+    return {"enabled": True, "persona": persona_id, **_persona_matrix.get_status()}
+
+
+@router.post("/persona/disable")
+async def disable_persona():
+    """Disable persona — reverts to static system_prompt."""
+    global _persona_enabled
+    if _persona_matrix._loaded:
+        _persona_matrix.save_state()
+    _persona_enabled = False
+    _state["config"]["persona_enabled"] = False
+    _save_state(_state)
+    return {"enabled": False}
+
+
+@router.post("/persona/priority")
+async def set_priority(body: dict):
+    """Set priority dial. Body: {"priority": 5}
+
+    0-3: Full persona (playful, emotional, personality-first)
+    4-6: Balanced (personality + capability)
+    7-10: Work mode (minimal persona, max knowledge)
+    """
+    global _persona_priority
+    p = body.get("priority")
+    if p is None:
+        return {"error": "priority is required (0-10)"}
+    _persona_priority = max(0, min(10, int(p)))
+    _state["config"]["persona_priority"] = _persona_priority
+    _save_state(_state)
+    return {"priority": _persona_priority}
+
+
+@router.post("/persona/create")
+def create_persona(body: dict):
+    """Create a new persona file. Body: full persona JSON (id, name, identity, etc.)
+
+    Minimal example:
+    {"id": "rex", "name": "Rex", "identity": {"core": "You are Rex, a no-nonsense engineer."}}
+    """
+    persona_id = body.get("id", "").strip()
+    if not persona_id:
+        return {"error": "id is required"}
+    if not re.match(r'^[a-z0-9_-]+$', persona_id):
+        return {"error": "id must be lowercase alphanumeric (a-z, 0-9, -, _)"}
+
+    personas_dir = Path(__file__).parent / "personas"
+    personas_dir.mkdir(exist_ok=True)
+    target = personas_dir / f"{persona_id}.json"
+
+    if target.exists():
+        return {"error": f"Persona '{persona_id}' already exists. Use PUT /persona/{{id}} to update."}
+
+    # Ensure minimum structure
+    persona = {
+        "id": persona_id,
+        "name": body.get("name", persona_id.title()),
+        "version": 1,
+        "identity": body.get("identity", {
+            "core": f"You are {body.get('name', persona_id.title())}.",
+            "personality": [],
+            "speech_style": "",
+            "boundaries": [],
+            "user_facts": {},
+        }),
+        "priority_prompts": body.get("priority_prompts", {
+            "low": "",
+            "mid": "",
+            "high": "",
+        }),
+        "voice": body.get("voice", {}),
+    }
+
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(persona, indent=2))
+    tmp.rename(target)
+    return {"created": persona_id, "path": str(target)}
+
+
+@router.put("/persona/{persona_id}")
+def update_persona(persona_id: str, body: dict):
+    """Update an existing persona file. Body: partial or full persona JSON.
+
+    Only provided fields are merged — omitted fields keep their current values.
+    """
+    personas_dir = Path(__file__).parent / "personas"
+    target = personas_dir / f"{persona_id}.json"
+
+    if not target.exists():
+        return {"error": f"Persona '{persona_id}' not found"}
+
+    try:
+        current = json.loads(target.read_text())
+    except Exception as e:
+        return {"error": f"Failed to read persona: {e}"}
+
+    # Deep merge: update top-level keys, merge dicts one level deep
+    for key, value in body.items():
+        if key == "id":
+            continue  # don't allow id change
+        if isinstance(value, dict) and isinstance(current.get(key), dict):
+            current[key].update(value)
+        else:
+            current[key] = value
+
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(current, indent=2))
+    tmp.rename(target)
+
+    # If this is the active persona, reload it
+    if _persona_matrix._loaded and _persona_matrix.persona_id == persona_id:
+        # Reload identity from disk (keep runtime state)
+        try:
+            data = json.loads(target.read_text())
+            _persona_matrix.identity = data.get("identity", {})
+            _persona_matrix.priority_prompts = data.get("priority_prompts", {})
+            _persona_matrix.voice_config = data.get("voice", {})
+        except Exception:
+            pass
+
+    return {"updated": persona_id}
+
+
+@router.delete("/persona/{persona_id}")
+def delete_persona(persona_id: str):
+    """Delete a persona file. Cannot delete the currently active persona."""
+    if _persona_matrix._loaded and _persona_matrix.persona_id == persona_id and _persona_enabled:
+        return {"error": f"Cannot delete active persona '{persona_id}'. Disable or switch first."}
+
+    personas_dir = Path(__file__).parent / "personas"
+    target = personas_dir / f"{persona_id}.json"
+    if not target.exists():
+        return {"error": f"Persona '{persona_id}' not found"}
+
+    target.unlink()
+
+    # Also remove state file if it exists
+    state_file = Path(__file__).parent / "persona_state" / f"{persona_id}_state.json"
+    if state_file.exists():
+        state_file.unlink()
+
+    return {"deleted": persona_id}
+
+
+@router.get("/persona/narrative")
+async def get_narrative():
+    """Return the narrative buffer — recent exchanges and summaries."""
+    if not _persona_matrix._loaded:
+        return {"exchanges": [], "summaries": []}
+    return _persona_matrix.narrative.to_dict()
+
+
+@router.get("/persona/mood")
+async def get_mood():
+    """Return the current mood drift state."""
+    if not _persona_matrix._loaded:
+        return {"baseline": "content", "valence": 0.0, "energy": 0.5}
+    return _persona_matrix.mood.to_dict()
+
+
+@router.get("/persona/prompt")
+async def get_persona_prompt(priority: int | None = None, observation: str = ""):
+    """Return the fully-built system prompt for the current persona.
+
+    Used by external integrations (Open WebUI #Kira pipe) to get a
+    ready-made prompt without duplicating build_prompt() logic.
+
+    Query params:
+        priority: override priority dial (0-10), defaults to current setting
+        observation: ephemeral context string to include
+    """
+    await _ensure_persona()
+    if not _persona_enabled or not _persona_matrix._loaded:
+        return {"prompt": None, "enabled": False}
+
+    p = priority if priority is not None else _persona_priority
+    prompt = _persona_matrix.build_prompt(priority=p, observation=observation)
+    prompt += "\n\n" + _EMOTION_TAG_INSTRUCTION
+
+    return {
+        "prompt": prompt,
+        "enabled": True,
+        "persona_id": _persona_matrix.persona_id,
+        "priority": p,
+        "mood": _persona_matrix.mood.to_dict(),
+    }
+
+
+@router.post("/persona/record")
+async def record_exchange(body: dict):
+    """Record an exchange in the narrative buffer.
+
+    Used by external integrations (Open WebUI #Kira pipe) to feed
+    conversation data back into the persona's narrative memory.
+
+    Body: {"role": "user"|"assistant", "text": "...", "emotion": "happy"}
+    """
+    if not _persona_enabled or not _persona_matrix._loaded:
+        return {"error": "persona not enabled"}
+
+    role = body.get("role", "").strip()
+    text = body.get("text", "").strip()
+    emotion = body.get("emotion", "")
+
+    if role not in ("user", "assistant") or not text:
+        return {"error": "role (user|assistant) and text are required"}
+
+    _persona_matrix.record_exchange(role, text, emotion)
+    return {"recorded": True, "narrative_exchanges": len(_persona_matrix.narrative.exchanges)}
+
+
+@router.post("/persona/save")
+async def save_persona_state():
+    """Force-save persona state to disk."""
+    if _persona_matrix._loaded:
+        _persona_matrix.save_state()
+        return {"saved": _persona_matrix.persona_id}
+    return {"error": "no persona loaded"}
+
+
+# ── Knowledge REST endpoints ────────────────────────────────────────────────
+
+@router.get("/knowledge")
+async def list_knowledge():
+    """List available knowledge bases from Open WebUI."""
+    await _ensure_persona()
+    if not _knowledge_client:
+        return {"error": "knowledge client not configured — set webui_api_key in config"}
+    return await _knowledge_client.list_knowledge_bases()
+
+
+@router.post("/knowledge/query")
+async def query_knowledge(body: dict):
+    """Query the knowledge store. Body: {"query": "...", "n_results": 5}"""
+    await _ensure_persona()
+    if not _knowledge_client:
+        return {"error": "knowledge client not configured — set webui_api_key in config"}
+
+    query = body.get("query", "").strip()
+    if not query:
+        return {"error": "query is required"}
+
+    results = await _knowledge_client.query(
+        text=query,
+        collection_name=body.get("collection", ""),
+        n_results=body.get("n_results", 5),
+    )
+    return [{"text": r.text, "source": r.source, "score": r.score} for r in results]
