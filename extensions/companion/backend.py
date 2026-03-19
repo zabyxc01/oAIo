@@ -792,6 +792,9 @@ async def companion_ws(websocket: WebSocket):
                 await _register_fleet_node(client_id, client_info)
                 print(f"[companion] client identified: {client_info}")
 
+            elif msg_type == "vision.analyze":
+                asyncio.create_task(_handle_vision_analyze(websocket, msg))
+
             elif msg_type == "chat.multi":
                 asyncio.create_task(_handle_chat_multi(websocket, msg))
 
@@ -817,7 +820,7 @@ def get_config():
 @router.patch("/config")
 def patch_config(body: dict):
     cfg = _state["config"]
-    allowed = {"ollama_model", "tts_voice", "tts_engine", "tts_compress", "tts_mode", "ref_audio", "system_prompt"}
+    allowed = {"ollama_model", "tts_voice", "tts_engine", "tts_compress", "tts_mode", "ref_audio", "system_prompt", "vision_model"}
     updated = {}
     for key in allowed:
         if key in body:
@@ -890,6 +893,61 @@ def remove_agent(name: str):
     agents = [a for a in agents if a["name"] != name]
     _save_agents(agents)
     return {"removed": name}
+
+
+async def _handle_vision_analyze(ws: WebSocket, msg: dict) -> None:
+    """Process vision.analyze: send screenshot to ollama vision model."""
+    payload = msg.get("payload", {})
+    msg_id = msg.get("id", "")
+    image_b64 = payload.get("image_b64", "")
+    context = payload.get("context", "")
+    prompt = payload.get("prompt", "Describe what you see on screen.")
+    model = payload.get("model") or _state["config"].get("vision_model", "llama3.2-vision:11b")
+
+    if not image_b64:
+        return
+
+    cfg = _state["config"]
+    ollama_url = _get_service_url("ollama")
+
+    system_prompt = cfg["system_prompt"] + "\n\n" + _EMOTION_TAG_INSTRUCTION
+    if context:
+        system_prompt += "\n\n--- Current situation ---\n" + context
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt, "images": [image_b64]},
+    ]
+
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            r = await client.post(
+                f"{ollama_url}/api/chat",
+                json={"model": model, "messages": messages, "stream": False},
+            )
+            r.raise_for_status()
+            response_text = r.json().get("message", {}).get("content", "")
+    except Exception as e:
+        await ws.send_text(_msg("chat.response", {
+            "text": f"[Vision error: {e}]",
+            "done": True,
+        }, msg_id))
+        return
+
+    emotion_data = _detect_emotion(response_text)
+    display_text = _clean_for_display(response_text)
+    tts_text = _clean_for_tts(response_text)
+
+    print(f"[companion] vision: {emotion_data['primary']}:{emotion_data['primary_intensity']} | {display_text[:80]}")
+
+    await ws.send_text(_msg("chat.response", {
+        "text": display_text,
+        "done": True,
+        "emotion": emotion_data,
+    }, msg_id))
+
+    if tts_text:
+        await _generate_and_send_tts(ws, tts_text, msg_id)
 
 
 async def _handle_chat_multi(ws: WebSocket, msg: dict) -> None:
