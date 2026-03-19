@@ -184,9 +184,11 @@ async function toggleMode(key) {
 
 function renderServices(d) {
   const el = document.getElementById('services-list');
-  const services = d.services || {};
+  // services comes as a list [{name, status, ...}] from the WS, not a dict
+  const services = Array.isArray(d.services) ? d.services : Object.values(d.services || {});
   let html = '';
-  for (const [name, svc] of Object.entries(services)) {
+  for (const svc of services) {
+    const name = svc.name || '?';
     const status = svc.status || 'unknown';
     const dotClass = status === 'running' ? 'running' : status === 'exited' ? 'exited' : 'error';
     const vram = svc.vram_mb ? (svc.vram_mb / 1024).toFixed(1) + 'G' : '';
@@ -200,7 +202,7 @@ function renderServices(d) {
       </div>
       <div class="item-actions">
         ${vram ? '<span class="badge badge-vram">' + _esc(vram) + '</span>' : ''}
-        <button class="btn-sm" onclick="toggleService('${_esc(name)}', '${status}')">${status === 'running' ? 'Stop' : 'Start'}</button>
+        <button class="btn-sm" onclick="toggleService('${_esc(name)}', '${_esc(status)}')">${status === 'running' ? 'Stop' : 'Start'}</button>
       </div>
     </div>`;
   }
@@ -464,12 +466,16 @@ async function refreshSettings() {
     let html = '';
     if (Array.isArray(paths)) {
       paths.forEach(p => {
+        const name = _esc(p.name || p.label || '?');
+        const ok = p.exists !== false;
+        const tier = _esc(p.tier || '');
+        const isRam = tier === 'ram';
         html += `<div class="symlink-row">
-          <span class="symlink-name">${_esc(p.name || p.label || '?')}</span>
-          <span>${_esc(p.link || '')}</span>
-          <span>&rarr;</span>
-          <span>${_esc(p.target || '')}</span>
-          <span style="color:${p.ok ? 'var(--green)' : 'var(--red)'}">${p.ok ? 'OK' : 'BROKEN'}</span>
+          <span class="symlink-name">${name}</span>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${_esc(p.target || '')}</span>
+          <span style="color:${ok ? 'var(--green)' : 'var(--red)'}; min-width:50px">${ok ? 'OK' : 'BROKEN'}</span>
+          <button class="btn-sm${isRam ? ' active' : ''}" onclick="repointSymlink('${name}', '${isRam ? 'default' : 'ram'}')">${isRam ? 'SSD' : 'RAM'}</button>
+          <button class="btn-sm" onclick="repointSymlinkCustom('${name}')">Repoint</button>
         </div>`;
       });
     }
@@ -547,6 +553,29 @@ document.getElementById('boot-toggle')?.addEventListener('click', async function
   this.classList.toggle('off');
   this.textContent = isEnabled ? 'Disabled' : 'Enabled';
 });
+
+// ── Symlink Repoint ──────────────────────────────────────────────────────────
+async function repointSymlink(name, target) {
+  try {
+    const r = await _fetch(`/config/paths/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ target }),
+    });
+    const result = await r.json();
+    if (result.error) {
+      alert('Repoint failed: ' + result.error);
+    } else {
+      refreshSettings();
+    }
+  } catch(e) { alert('Repoint error: ' + e.message); }
+}
+
+async function repointSymlinkCustom(name) {
+  const target = prompt(`New target path for "${name}":\n(Enter absolute path, "ram", or "default")`);
+  if (!target) return;
+  await repointSymlink(name, target.trim());
+}
 
 // ── Emergency Kill ───────────────────────────────────────────────────────────
 document.getElementById('emergency-kill')?.addEventListener('click', async () => {
