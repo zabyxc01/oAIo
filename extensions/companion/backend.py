@@ -414,6 +414,7 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
     msg_id = msg.get("id", "")
     user_text = payload.get("text", "").strip()
     history = payload.get("history", [])
+    context = payload.get("context", "").strip()  # ambient/screen context — merged into system prompt
 
     if not user_text:
         return
@@ -423,6 +424,9 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
 
     # Build messages array with emotion tag instruction
     system_prompt = cfg["system_prompt"] + "\n\n" + _EMOTION_TAG_INSTRUCTION
+    # Append ambient context to system prompt (NOT as user message)
+    if context:
+        system_prompt += "\n\n--- Current situation ---\n" + context
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_text})
