@@ -150,6 +150,9 @@ class KnowledgeClient:
 
         # Sort by distance (lower = more relevant) and limit
         results.sort(key=lambda r: r.score)
+        # Filter out weak matches — distance > 1.0 is usually irrelevant
+        # Tighter threshold prevents casual conversation from pulling random docs
+        results = [r for r in results if r.score < 1.0]
         return results[:n_results]
 
     async def list_knowledge_bases(self) -> list[dict]:

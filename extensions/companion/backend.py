@@ -139,8 +139,8 @@ _EMOTION_TAG_INSTRUCTION = (
     "relaxed, neutral, blush, sleepy, thinking, shy, bored, serious, curious, love "
     "and intensity is a decimal from 0.0 to 1.0 indicating strength. "
     "You may optionally add a second tag for blended emotions. "
-    "Examples: [happy:0.8] [curious:0.3] Hey that's really cool! | "
-    "[sad:0.6] I'm sorry to hear that. | [thinking:0.4] Hmm let me consider that. "
+    "Examples: [happy:0.8] Hey that's really cool! ... "
+    "[sad:0.6] I'm sorry to hear that. ... [thinking:0.4] Hmm let me consider that. "
     "Never explain the tags. They control your avatar's facial expression."
 )
 
@@ -528,7 +528,10 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
             trimmed = trimmed[:-1]
         messages.extend(trimmed)
         messages.append({"role": "user", "content": (
-            "[Reference documents — answer using these facts exactly as written]\n"
+            "[The following are EXTERNAL REFERENCE DOCUMENTS uploaded by the user. "
+            "This is NOT about you — these are separate documents to look up and cite. "
+            "Do not adopt this information as part of your identity or personality. "
+            "Answer the question using these docs as a factual source.]\n\n"
             + _knowledge_context
             + "\n\n[Question]\n" + user_text
         )})
@@ -587,9 +590,11 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
           + f" | mood: {_emotion_state.mood}")
 
     # ── Record exchanges in persona narrative ──
+    # Tag source: ambient observations have context (screen state), user chats don't
+    _exchange_source = "ambient" if context else "chat"
     if _persona_enabled and _persona_matrix._loaded:
-        _persona_matrix.record_exchange("user", user_text)
-        _persona_matrix.record_exchange("assistant", display_text, emotion_data["primary"])
+        _persona_matrix.record_exchange("user", user_text, source=_exchange_source)
+        _persona_matrix.record_exchange("assistant", display_text, emotion_data["primary"], source=_exchange_source)
 
     tts_mode = cfg.get("tts_mode", "batch")
 
@@ -1430,7 +1435,8 @@ async def record_exchange(body: dict):
     if role not in ("user", "assistant") or not text:
         return {"error": "role (user|assistant) and text are required"}
 
-    _persona_matrix.record_exchange(role, text, emotion)
+    source = body.get("source", "webui")
+    _persona_matrix.record_exchange(role, text, emotion, source=source)
     return {"recorded": True, "narrative_exchanges": len(_persona_matrix.narrative.exchanges)}
 
 

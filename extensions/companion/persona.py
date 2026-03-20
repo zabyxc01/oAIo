@@ -33,12 +33,20 @@ class NarrativeBuffer:
         self.max_exchanges = max_exchanges
         self.max_summaries = max_summaries
 
-    def add_exchange(self, role: str, text: str, emotion: str = "") -> None:
-        """Record a single exchange (user message or assistant response)."""
+    def add_exchange(self, role: str, text: str, emotion: str = "",
+                     source: str = "chat") -> None:
+        """Record a single exchange (user message or assistant response).
+
+        Args:
+            source: "chat" (user-initiated), "ambient" (autonomous observation),
+                    "vision" (screen capture), "audio" (desktop audio),
+                    "webui" (Open WebUI #Kira)
+        """
         self.exchanges.append({
             "role": role,
             "text": text[:500],  # cap length to avoid bloat
             "emotion": emotion,
+            "source": source,
             "ts": time.time(),
         })
         # When buffer is full, compress oldest half into a summary
@@ -79,8 +87,15 @@ class NarrativeBuffer:
         if len(self.summaries) > self.max_summaries:
             self.summaries = self.summaries[-self.max_summaries:]
 
+    # Sources that form personality-relevant memory (echoed back in prompts)
+    NARRATIVE_SOURCES = {"chat", "webui"}
+
     def get_context(self, max_tokens_hint: int = 800) -> str:
         """Build narrative context string for prompt injection.
+
+        Only includes chat and webui exchanges — ambient/vision/audio
+        observations are recorded for mood drift but NOT echoed back
+        into the prompt (prevents narrative pollution).
 
         Returns summaries first (oldest context), then recent exchanges.
         Rough token estimate: 1 token ≈ 4 chars.
@@ -92,8 +107,9 @@ class NarrativeBuffer:
         for s in self.summaries:
             parts.append(s["text"])
 
-        # Add recent exchanges
-        for ex in self.exchanges[-self.max_exchanges:]:
+        # Add recent exchanges — only from direct conversation sources
+        meaningful = [ex for ex in self.exchanges if ex.get("source", "chat") in self.NARRATIVE_SOURCES]
+        for ex in meaningful[-self.max_exchanges:]:
             prefix = "You said" if ex["role"] == "assistant" else "They said"
             emotion_note = f" [{ex['emotion']}]" if ex.get("emotion") else ""
             line = f"{prefix}{emotion_note}: {ex['text']}"
@@ -295,9 +311,10 @@ class PersonaMatrix:
         tmp.write_text(json.dumps(data, indent=2))
         tmp.rename(sf)
 
-    def record_exchange(self, role: str, text: str, emotion: str = "") -> None:
+    def record_exchange(self, role: str, text: str, emotion: str = "",
+                        source: str = "chat") -> None:
         """Record a conversation exchange and update mood."""
-        self.narrative.add_exchange(role, text, emotion)
+        self.narrative.add_exchange(role, text, emotion, source=source)
         if emotion:
             self.mood.record_emotion(emotion)
         # Auto-save every 5 exchanges
