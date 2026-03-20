@@ -138,6 +138,16 @@
       <div class="card">
         <h2>Companion</h2>
         <div class="form-group">
+          <label>Resource Preset</label>
+          <select id="set-preset">
+            <option value="max_quality">Max Quality (~10 GB VRAM)</option>
+            <option value="optimal" selected>Optimal (~6 GB VRAM)</option>
+            <option value="lite">Lite (~3 GB VRAM)</option>
+            <option value="gaming">Gaming (0 VRAM)</option>
+          </select>
+          <button class="btn-primary" id="apply-preset" style="margin-top:4px;font-size:11px;padding:4px 10px">Apply</button>
+        </div>
+        <div class="form-group">
           <label>Model</label>
           <select id="set-model"></select>
         </div>
@@ -157,6 +167,58 @@
         <div class="form-group">
           <label>System Prompt</label>
           <textarea id="set-prompt" rows="4"></textarea>
+        </div>
+        <h3 style="margin-top:12px;font-size:12px;color:var(--text-dim)">Persona</h3>
+        <div class="form-group">
+          <label>Priority (0=persona, 10=work)</label>
+          <input id="set-priority" type="range" min="0" max="10" value="3" />
+          <span id="set-priority-val" style="font-size:11px;color:var(--text-dim)">3</span>
+        </div>
+        <div class="form-group">
+          <label>Vision Model</label>
+          <select id="set-vision-model"></select>
+        </div>
+        <h3 style="margin-top:12px;font-size:12px;color:var(--text-dim)">RAG Sources</h3>
+        <div class="form-group">
+          <label>Knowledge Docs</label>
+          <input id="set-rag-knowledge" type="checkbox" checked />
+        </div>
+        <div class="form-group">
+          <label>Web Search</label>
+          <input id="set-rag-web" type="checkbox" checked />
+        </div>
+        <div class="form-group">
+          <label>Personal Notes</label>
+          <input id="set-rag-notes" type="checkbox" checked />
+        </div>
+        <div class="form-group">
+          <label>Episodes</label>
+          <input id="set-rag-episodes" type="checkbox" checked />
+        </div>
+        <div class="form-group">
+          <label>Vision Memory</label>
+          <input id="set-rag-vision" type="checkbox" checked />
+        </div>
+        <div class="form-group">
+          <label>Git Awareness</label>
+          <input id="set-rag-git" type="checkbox" />
+        </div>
+        <div class="form-group">
+          <label>Git Repo Path</label>
+          <input id="set-git-path" type="text" placeholder="/mnt/windows-sata/oAIo" />
+        </div>
+        <h3 style="margin-top:12px;font-size:12px;color:var(--text-dim)">LLM Tuning</h3>
+        <div class="form-group">
+          <label>Context Window</label>
+          <input id="set-num-ctx" type="number" min="2048" max="32768" step="1024" value="4096" />
+        </div>
+        <div class="form-group">
+          <label>Temperature</label>
+          <input id="set-temperature" type="number" min="0" max="2" step="0.1" placeholder="default" />
+        </div>
+        <div class="form-group">
+          <label>RAG Temperature</label>
+          <input id="set-rag-temp" type="number" min="0" max="2" step="0.1" value="0.2" />
         </div>
         <button class="btn-primary" id="save-companion">Save</button>
       </div>

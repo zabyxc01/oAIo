@@ -258,6 +258,8 @@ services:
       - /dev/shm:/dev/shm                       # RAM tier — host tmpfs for fast staging
       - /mnt/storage:/mnt/storage:ro
       - /mnt/windows-sata:/mnt/windows-sata:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -299,7 +301,7 @@ services:
     container_name: searxng
     restart: "no"
     ports:
-      - "${OAIO_BIND:-127.0.0.1}:8888:8888"
+      - "${OAIO_BIND:-127.0.0.1}:8888:8080"
     networks:
       - oaio-net
     volumes:
@@ -315,24 +317,3 @@ services:
       - oaio-net
     volumes:
       - /mnt/oaio/letta-data:/root/.letta
-
-  momask:
-    build:
-      context: .
-      dockerfile: docker/momask/Dockerfile
-    container_name: momask
-    restart: "no"
-    ports:
-      - "${OAIO_BIND:-127.0.0.1}:8005:8005"
-    networks:
-      - oaio-net
-    volumes:
-      - /mnt/oaio/momask-models:/models
-    devices:
-      - /dev/kfd:/dev/kfd
-      - /dev/dri:/dev/dri
-    group_add:
-      - video
-    environment:
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0
-      - PYTORCH_ROCM_ARCH=gfx1100

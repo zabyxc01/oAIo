@@ -203,7 +203,7 @@
     },
     "searxng": {
       "container": "searxng",
-      "port": 8888,
+      "port": 8080,
       "vram_est_gb": 0,
       "ram_est_gb": 0.3,
       "priority": 40,

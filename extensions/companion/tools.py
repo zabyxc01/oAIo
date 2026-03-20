@@ -25,7 +25,7 @@ def _get_url(service: str) -> str:
     except Exception:
         pass
     defaults = {
-        "searxng": "http://searxng:8888",
+        "searxng": "http://searxng:8080",
         "florence-2": "http://florence-2:8010",
         "letta": "http://letta:8283",
     }

@@ -13,7 +13,9 @@ Usage:
     prompt = matrix.build_prompt(priority=3, observation="User is gaming")
 """
 import json
+import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 _PERSONAS_DIR = Path(__file__).parent / "personas"
@@ -32,6 +34,7 @@ class NarrativeBuffer:
         self.summaries: list[dict] = []       # {text, ts, exchange_range}
         self.max_exchanges = max_exchanges
         self.max_summaries = max_summaries
+        self.on_compress = None  # callback: (summary_text, topics, emotions, count) -> None
 
     def add_exchange(self, role: str, text: str, emotion: str = "",
                      source: str = "chat") -> None:
@@ -79,6 +82,13 @@ class NarrativeBuffer:
         topic_str = "; ".join(list(topics)[:5]) if topics else "general conversation"
         summary_text = f"Earlier: talked about {topic_str}.{mood_summary}"
 
+        # Fire episode callback before appending summary
+        if self.on_compress:
+            try:
+                self.on_compress(summary_text, list(topics)[:5], emotions, len(old))
+            except Exception as e:
+                print(f"[persona] on_compress callback failed: {e}")
+
         self.summaries.append({
             "text": summary_text,
             "ts": time.time(),
@@ -89,6 +99,12 @@ class NarrativeBuffer:
 
     # Sources that form personality-relevant memory (echoed back in prompts)
     NARRATIVE_SOURCES = {"chat", "webui"}
+
+    # Exchanges matching these patterns are stale noise — filtered from prompt context
+    _STALE_RE = re.compile(
+        r'\b(what time|what\'s the time|current time|right now it\'s|it\'s \d{1,2}:\d{2})\b',
+        re.IGNORECASE,
+    )
 
     def get_context(self, max_tokens_hint: int = 800) -> str:
         """Build narrative context string for prompt injection.
@@ -108,7 +124,12 @@ class NarrativeBuffer:
             parts.append(s["text"])
 
         # Add recent exchanges — only from direct conversation sources
-        meaningful = [ex for ex in self.exchanges if ex.get("source", "chat") in self.NARRATIVE_SOURCES]
+        # Filter out time-related exchanges (they go stale and confuse LLM)
+        meaningful = [
+            ex for ex in self.exchanges
+            if ex.get("source", "chat") in self.NARRATIVE_SOURCES
+            and not self._STALE_RE.search(ex.get("text", ""))
+        ]
         for ex in meaningful[-self.max_exchanges:]:
             prefix = "You said" if ex["role"] == "assistant" else "They said"
             emotion_note = f" [{ex['emotion']}]" if ex.get("emotion") else ""
@@ -253,6 +274,7 @@ class PersonaMatrix:
         self.voice_config: dict = {}
         self.narrative: NarrativeBuffer = NarrativeBuffer()
         self.mood: MoodDrift = MoodDrift()
+        self.episodes = None  # EpisodeStore, set after load
         self._loaded = False
 
     async def load(self, persona_id: str) -> bool:
@@ -277,8 +299,28 @@ class PersonaMatrix:
         # Restore persistent state (narrative + mood)
         self._load_state()
 
+        # Init episodic memory and wire compression callback
+        try:
+            from episodes import EpisodeStore as _ES
+        except ImportError:
+            import importlib.util as _ilu
+            _ep_spec = _ilu.spec_from_file_location(
+                "episodes", str(Path(__file__).parent / "episodes.py"))
+            _ep_mod = _ilu.module_from_spec(_ep_spec)
+            _ep_spec.loader.exec_module(_ep_mod)
+            _ES = _ep_mod.EpisodeStore
+        self.episodes = _ES(self.persona_id)
+        self.narrative.on_compress = self._on_narrative_compress
+
         print(f"[persona] loaded: {self.identity.get('core', '')[:60]}...")
         return True
+
+    def _on_narrative_compress(self, summary: str, topics: list[str],
+                               emotions: list[str], count: int) -> None:
+        """Callback from NarrativeBuffer._compress() — write structured episode."""
+        if self.episodes:
+            self.episodes.add(summary, topics, emotions, count)
+            print(f"[persona] episode recorded: {summary[:60]}...")
 
     def _state_file(self) -> Path:
         _STATE_DIR.mkdir(exist_ok=True)
@@ -395,6 +437,20 @@ class PersonaMatrix:
         # ── Layer 3: Observation (ephemeral, injected by caller) ──
         if observation:
             sections.append(f"--- Current situation ---\n{observation}")
+
+        # ── Time awareness (LAST — overrides any stale timestamps in memory) ──
+        import os
+        from zoneinfo import ZoneInfo
+        _tz_name = os.environ.get("TZ", "America/Indiana/Indianapolis")
+        try:
+            now = datetime.now(ZoneInfo(_tz_name))
+        except Exception:
+            now = datetime.now()
+        sections.append(
+            f"Current time: {now.strftime('%A, %B %d at %H:%M')}. "
+            "This is the ACTUAL current time — ignore any different timestamps "
+            "from conversation history above."
+        )
 
         return "\n\n".join(sections)
 

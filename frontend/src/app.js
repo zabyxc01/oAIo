@@ -417,11 +417,48 @@ async function refreshSettings() {
     const r = await _fetch('/extensions/companion/config');
     const cfg = await r.json();
     document.getElementById('set-voice').value = cfg.tts_voice || 'af_heart';
+    // Resource preset
+    const presetSel = document.getElementById('set-preset');
+    if (presetSel && cfg.resource_preset) {
+      presetSel.value = cfg.resource_preset;
+    }
     document.getElementById('set-prompt').value = cfg.system_prompt || '';
     const engineSel = document.getElementById('set-tts-engine');
     for (let i = 0; i < engineSel.options.length; i++) {
       if (engineSel.options[i].value === (cfg.tts_engine || 'kokoro')) engineSel.selectedIndex = i;
     }
+    // Persona
+    const priorityEl = document.getElementById('set-priority');
+    if (priorityEl) {
+      priorityEl.value = cfg.persona_priority ?? 3;
+      document.getElementById('set-priority-val').textContent = priorityEl.value;
+      priorityEl.addEventListener('input', () => {
+        document.getElementById('set-priority-val').textContent = priorityEl.value;
+      });
+    }
+    // RAG toggles
+    const ragMap = {
+      'set-rag-knowledge': 'rag_knowledge_enabled',
+      'set-rag-web': 'rag_web_search_enabled',
+      'set-rag-notes': 'rag_notes_enabled',
+      'set-rag-episodes': 'rag_episodes_enabled',
+      'set-rag-vision': 'rag_vision_memory_enabled',
+      'set-rag-git': 'rag_git_enabled',
+    };
+    for (const [elId, cfgKey] of Object.entries(ragMap)) {
+      const el = document.getElementById(elId);
+      if (el) el.checked = cfg[cfgKey] !== false;  // default true except git
+    }
+    if (document.getElementById('set-rag-git')) {
+      document.getElementById('set-rag-git').checked = cfg.rag_git_enabled === true;  // default false
+    }
+    // Other fields
+    if (document.getElementById('set-git-path')) document.getElementById('set-git-path').value = cfg.git_repo_path || '';
+    if (document.getElementById('set-num-ctx')) document.getElementById('set-num-ctx').value = cfg.llm_num_ctx || 4096;
+    if (document.getElementById('set-temperature')) document.getElementById('set-temperature').value = cfg.llm_temperature ?? '';
+    if (document.getElementById('set-rag-temp')) document.getElementById('set-rag-temp').value = cfg.rag_temperature ?? 0.2;
+    // Store cfg for vision model population later
+    window._companionCfg = cfg;
   } catch(e) {}
 
   // Load ollama models
@@ -437,6 +474,21 @@ async function refreshSettings() {
         opt.textContent = `${m.name} (${m.size_gb}GB)`;
         sel.appendChild(opt);
       });
+    }
+    // Populate vision model dropdown with same list
+    const visSel = document.getElementById('set-vision-model');
+    if (visSel) {
+      visSel.innerHTML = '<option value="">(none)</option>';
+      if (Array.isArray(models)) {
+        models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.name;
+          opt.textContent = `${m.name} (${m.size_gb}GB)`;
+          visSel.appendChild(opt);
+        });
+      }
+      const savedVision = window._companionCfg?.vision_model || '';
+      visSel.value = savedVision;
     }
   } catch(e) {}
 
@@ -512,9 +564,56 @@ document.getElementById('save-companion')?.addEventListener('click', async () =>
     tts_voice: document.getElementById('set-voice').value,
     tts_engine: document.getElementById('set-tts-engine').value,
     system_prompt: document.getElementById('set-prompt').value,
+    // Persona
+    vision_model: document.getElementById('set-vision-model')?.value || undefined,
+    // RAG toggles
+    rag_knowledge_enabled: document.getElementById('set-rag-knowledge')?.checked ?? true,
+    rag_web_search_enabled: document.getElementById('set-rag-web')?.checked ?? true,
+    rag_notes_enabled: document.getElementById('set-rag-notes')?.checked ?? true,
+    rag_episodes_enabled: document.getElementById('set-rag-episodes')?.checked ?? true,
+    rag_vision_memory_enabled: document.getElementById('set-rag-vision')?.checked ?? true,
+    rag_git_enabled: document.getElementById('set-rag-git')?.checked ?? false,
+    git_repo_path: document.getElementById('set-git-path')?.value || '',
+    // LLM tuning
+    llm_num_ctx: parseInt(document.getElementById('set-num-ctx')?.value) || 4096,
+    rag_temperature: parseFloat(document.getElementById('set-rag-temp')?.value) || 0.2,
   };
+  // Only include temperature if explicitly set
+  const tempVal = document.getElementById('set-temperature')?.value;
+  if (tempVal !== '' && tempVal != null) body.llm_temperature = parseFloat(tempVal);
   await _fetch('/extensions/companion/config', { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  // Save priority separately via persona endpoint
+  const priority = parseInt(document.getElementById('set-priority')?.value);
+  if (!isNaN(priority)) {
+    await _fetch('/extensions/companion/persona/priority', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ priority }),
+    });
+  }
   alert('Companion settings saved');
+});
+
+// Apply resource preset
+document.getElementById('apply-preset')?.addEventListener('click', async () => {
+  const preset = document.getElementById('set-preset').value;
+  if (!preset) return;
+  const btn = document.getElementById('apply-preset');
+  btn.textContent = 'Applying...';
+  btn.disabled = true;
+  try {
+    const r = await _fetch('/extensions/companion/presets/' + preset, { method: 'POST' });
+    const result = await r.json();
+    if (result.error) {
+      alert('Preset error: ' + result.error);
+    } else {
+      alert('Preset "' + preset + '" applied.\nModels loaded: ' + (result.models_loaded || []).join(', ') +
+            '\nModels unloaded: ' + (result.models_unloaded || []).join(', '));
+      refreshSettings();
+    }
+  } catch(e) { alert('Failed to apply preset'); }
+  btn.textContent = 'Apply';
+  btn.disabled = false;
 });
 
 // Save system
