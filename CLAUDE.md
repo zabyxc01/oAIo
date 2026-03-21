@@ -1,7 +1,25 @@
 # oAIo — Claude Code Context
 
 > Cold-start prompt. Read this before making any changes.
-> Full ignition doc: `docs/oAIo-path-to-alpha-1.0.md`
+
+## MANDATORY: Path to Alpha 1.0 Rules
+
+**Before touching ANY code in this project, read these files:**
+
+1. `docs/Path to Alpha 1.0/Origin Ignition Prompt.md` — the master plan. This is the source of truth for all Alpha work.
+2. `docs/Path to Alpha 1.0/_RULES.md` — the rules for documenting changes.
+
+**The Origin Ignition Prompt is NEVER edited.** When you implement a phase or sub-phase:
+
+1. **Create a new document** in `docs/Path to Alpha 1.0/` named `Phase-{N}{Letter}-{Short-Name}.md`
+2. **Cite the original section** — quote the relevant plan text from the Origin
+3. **Document what actually changed** — files modified, lines added/removed, commits
+4. **Explain WHY** if anything deviated from the plan. No workarounds without explanation and user approval.
+5. **No workarounds.** If the plan says X and you can't do X, stop and explain. Do not silently do Y instead.
+
+**This is not optional. Skipping the change document is a rule violation.**
+
+---
 
 ---
 
