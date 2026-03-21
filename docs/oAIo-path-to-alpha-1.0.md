@@ -1,6 +1,7 @@
-# oAIo — Path to Alpha 1.0
-> This document is both a roadmap and a cold-start context prompt.
-> If resuming work on this project, read this first.
+# oAIo — Path to Alpha 1.0 (ARCHIVED)
+> **ARCHIVED 2026-03-21.** Superseded by `docs/Path to Alpha 1.0/Origin Ignition Prompt.md`.
+> References to LiteGraph, nodes.js, and CONFIG tab are no longer accurate.
+> Kept for historical context only — do NOT use as current reference.
 
 ---
 

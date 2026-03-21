@@ -1,6 +1,10 @@
-# oAIo — Specifications
+# oAIo — Specifications (ARCHIVED)
 
-> Version: 0.9.0-alpha | Updated: 2026-03-07
+> **ARCHIVED 2026-03-21.** LiteGraph frontend was removed. CONFIG tab, nodes.js, and visual
+> node graph references in this doc are no longer accurate. Current architecture documented
+> in `docs/Path to Alpha 1.0/`. Kept for historical context only.
+>
+> Original version: 0.9.0-alpha | 2026-03-07
 
 ---
 

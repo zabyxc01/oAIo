@@ -41,8 +41,7 @@ RVC_GRADIO = os.environ.get("RVC_GRADIO", "http://rvc:7865")
 # ── Optional API token auth ──────────────────────────────────────────────────
 _API_TOKEN = os.environ.get("OAIO_API_TOKEN", "").strip() or None
 
-_AUTH_SKIP_PREFIXES = ("/static", "/litegraph", "/style", "/app", "/nodes", "/ext", "/panels",
-                       "/extensions-loader", "/favicon")
+_AUTH_SKIP_PREFIXES = ("/static", "/style", "/app", "/ext", "/panels", "/favicon")
 _AUTH_SKIP_EXTENSIONS = frozenset((".js", ".css", ".html", ".ico", ".svg", ".png",
                                    ".woff", ".woff2", ".ttf", ".map"))
 
@@ -109,8 +108,8 @@ class _NoCacheStatic(StaticFiles):
 
 
 # ── Request monitor middleware ───────────────────────────────────────────────
-_SKIP_PREFIXES = ("/api/monitor/", "/ext/", "/style.css", "/app.js", "/litegraph",
-                  "/panels/", "/nodes/", "/extensions-loader", "/favicon")
+_SKIP_PREFIXES = ("/api/monitor/", "/ext/", "/style.css", "/app.js",
+                  "/panels/", "/favicon")
 
 
 class RequestLogMiddleware:
