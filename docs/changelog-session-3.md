@@ -1,5 +1,5 @@
-# oAIo — Session 3 Changelog
-> Milestone checkpoint — March 2026
+# oAIo — Session 3 Changelog (ARCHIVED)
+> **ARCHIVED 2026-03-21.** Historical session log. Current docs in `docs/Path to Alpha 1.0/`.
 
 ---
 

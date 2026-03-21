@@ -357,6 +357,24 @@ All endpoints on port 9000 unless noted.
 
 ---
 
+---
+
+## Updates (2026-03-21 Pre-Alpha Recentering)
+
+- LiteGraph frontend removed (36,855 lines) — CONFIG tab, nodes.js, extensions-loader all gone
+- Frontend stripped to 3 files: app.js (703), index.html, style.css
+- 14 services total (added: faster-whisper, indextts, momask, florence-2, searxng, letta)
+- 8 modes (added: waifu, indextts, oaudio-optimized, animation, assistant)
+- 23 symlinks (expanded from 16)
+- 5 extensions: companion (3,331 LoC), fleet (735), m3 (686), debugger (136), example (20)
+- Companion extension: persona engine (Kira), RAG waterfall, emotion detection, TTS routing
+- oprojecto (Godot 4.6 desktop companion): transparent overlay, VRM avatar, 87 animations, voice I/O
+- Storage: m.2 SATA (not NVMe) + motherboard SATA. No NVMe in system.
+- Runtime state stripped from git (fleet.json, persona_state, scans, graphs, nodes)
+- Full audit docs at `docs/Path to Alpha 1.0/Pre-Alpha Legwork/`
+
+---
+
 ## License
 
 Private — SYS-PANDORA-OAO / zabyxc01

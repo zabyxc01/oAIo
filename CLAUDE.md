@@ -229,7 +229,62 @@ GET  /voices
 
 ## Git / GitHub
 - Repo: https://github.com/zabyxc01/oAIo (public)
-- Branch: main
+- Branches: `dev` (working frontier), `main` (last stable)
 - `.env` excluded from git (secrets) — copy `.env.example` to start
-- `config/active_modes.json` excluded (runtime state)
-- `templates/*.json` excluded (user runtime data)
+- Runtime state excluded: `config/active_modes.json`, `config/scans.json`, `config/service_ports.json`, `config/graphs/`, `config/nodes.json`, `extensions/fleet/fleet.json`, `extensions/companion/persona_state/`, `templates/*.json`
+
+---
+
+## Updates (2026-03-21 Pre-Alpha Recentering)
+
+### What Changed
+- LiteGraph removed (36,855 lines) — litegraph.js, litegraph.css, all extension nodes.js files. Frontend is now 3 files: app.js, index.html, style.css (703 + 558 LoC)
+- Extension manifests cleared of deleted nodes.js references
+- Auth/logging skip prefixes cleaned of /litegraph, /nodes, /extensions-loader
+- Runtime state stripped from git (fleet.json, persona_state, scans, graphs, nodes)
+- Old docs archived (SPECIFICATIONS.md, oAIo-path-to-alpha-1.0.md) with headers pointing to current docs
+- Storage corrected: no NVMe in system. nvme0n1 is m.2 SATA, sda1 is motherboard SATA
+
+### Current Counts
+- 14 services in docker-compose (all stay, `restart: "no"`)
+- 8 modes in modes.json
+- 23 symlinks in paths.json (all healthy)
+- 5 extensions: companion (3,331 LoC), fleet (735), m3 (686), debugger (136), example (20)
+- 92 API endpoints, 5 WebSocket endpoints
+- ~10,200 LoC Python, 703 LoC JS
+
+### TTS Hot Path
+- Daily driver: Kokoro (CPU/ONNX, af_heart voice)
+- Show-off tier: IndexTTS (8GB VRAM, reference audio cloning)
+- RVC available but NOT in companion hot path
+
+### Design Principles (full doc: `docs/Path to Alpha 1.0/_DESIGN.md`)
+- Every service exposes clean HTTP API — Gradio is debug-only
+- oAIo is the service management frontend — oprojecto/Android/Web are companion clients
+- Manifest + Templates for service UI, not full auto-discovery
+- Services stay in compose — clean code paths, don't remove infrastructure
+- The companion WebSocket protocol (8 message types) is the client SDK
+- No workarounds without documentation
+
+### Current Docs Structure
+```
+docs/
+  Path to Alpha 1.0/
+    Origin Ignition Prompt.md   <- master plan (FROZEN, never edit)
+    _RULES.md                   <- change documentation rules
+    _DESIGN.md                  <- 10 design principles
+    _SYS.md                     <- live system specs
+    Pre-Alpha Legwork/
+      oAIo-Stack-Audit.md      <- service-by-service findings
+      oAIo-Codebase-Health.md  <- bugs, dead code, duplicates
+      oprojecto-Audit.md       <- engine/subsystem audit
+      Dynamic-UI-Audit.md      <- manifest+templates verdict
+      License-Audit.md         <- 90+ deps catalogued
+      Wifu-Research-Agenda.md  <- pipeline architecture research plan
+  SPECIFICATIONS.md             <- ARCHIVED (LiteGraph refs stale)
+  oAIo-path-to-alpha-1.0.md    <- ARCHIVED (superseded by Origin)
+  changelog-session-2.md        <- historical
+  changelog-session-3.md        <- historical
+  STATE-2026-03-14.md           <- historical
+  STACK-STATE-2026-03-15.md     <- historical
+```

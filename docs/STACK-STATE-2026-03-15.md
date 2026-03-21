@@ -1,6 +1,6 @@
 ---
-name: oAIo + Desktop Waifu — Full Stack State
-description: Definitive current-state reference for the oAIo Docker orchestration platform and desktop-waifu Electron companion app. Updated 2026-03-16.
+name: oAIo + Desktop Waifu — Full Stack State (ARCHIVED)
+description: ARCHIVED 2026-03-21. Historical snapshot. Electron app archived, replaced by oprojecto (Godot). Current state in docs/Path to Alpha 1.0/. Original date 2026-03-16.
 type: project
 ---
 
