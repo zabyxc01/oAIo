@@ -7,9 +7,6 @@ networks:
   oaio-net:
     driver: bridge
 
-volumes:
-  open-webui:
-
 services:
 
   # ── Ollama LLM ──────────────────────────────────────────────────────────────
@@ -37,7 +34,7 @@ services:
     ports:
       - "${OAIO_BIND:-127.0.0.1}:3000:8080"
     volumes:
-      - open-webui:/app/backend/data
+      - /mnt/oaio/open-webui-data:/app/backend/data
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       # TTS routes through RVC proxy (Kokoro → RVC → voice output)
