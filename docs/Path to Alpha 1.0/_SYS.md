@@ -21,12 +21,14 @@
 
 | Device | Type | Mount | Size | Used | Speed | Purpose |
 |--------|------|-------|------|------|-------|---------|
-| nvme0n1p1 | NVMe | `/` | 606 GB | ~80% | 3.5 GB/s | OS, Steam, home, Docker |
-| nvme0n1p2 | NVMe | `/boot/efi` | 512 MB | — | — | EFI boot |
-| nvme0n1p3 | NVMe | `/mnt/storage` | 324 GB | ~57% | 3.5 GB/s | Staging, fast I/O, real-time output buffers |
-| sda1 | m.2 SATA (SATA III on M.2 slot) | `/mnt/windows-sata` | 223 GB | ~56% | 550 MB/s | oAIo project, ollama models, oaio-hub |
+| nvme0n1p1 | m.2 SATA (SATA III on M.2 slot) | `/` | 606 GB | ~83% | ~550 MB/s | OS, Steam, home, Docker |
+| nvme0n1p2 | m.2 SATA (same drive) | `/boot/efi` | 512 MB | — | — | EFI boot |
+| nvme0n1p3 | m.2 SATA (same drive) | `/mnt/storage` | 324 GB | ~57% | ~550 MB/s | Staging, I/O, output buffers |
+| sda1 | Motherboard SATA (standard SATA to board) | `/mnt/windows-sata` | 223 GB | ~61% | ~550 MB/s | oAIo project, ollama models, oaio-hub |
 | sdb1 | USB 3.0 HDD | `/media/oao/My Passport` | 2.6 TB | — | ~100 MB/s | Archives, backups |
 | zram0 | Compressed RAM | [SWAP] | 15.7 GB | 6.2 GB | — | Swap (compressed) |
+
+**No NVMe in the system.** Both SSDs are SATA — one in M.2 form factor, one on board connector. Same speed ceiling (~550 MB/s).
 
 ### Symlink Bus
 
