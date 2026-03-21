@@ -43,6 +43,15 @@ Every time a phase or sub-phase is implemented, a **new document** is created in
 YYYY-MM-DD
 ```
 
+## Build Principles (enforced)
+
+These were established during the pre-Alpha recentering (2026-03-21). Full rationale in `_DESIGN.md`.
+
+1. **Services stay in docker-compose.** Clean stale code paths, don't remove services. `restart: "no"` controls lifecycle.
+2. **Gradio UIs are debug-only.** oAIo is the only user-facing service frontend. If a service only has Gradio, wrap it in a FastAPI proxy.
+3. **The companion WebSocket protocol is the client SDK.** oprojecto, Android, and web are all clients of the same 8-message protocol.
+4. **No workarounds without documentation.** If you can't do X, explain why and get approval before doing Y.
+
 ## What Is NOT Allowed
 
 - Editing the Origin Ignition Prompt
@@ -50,3 +59,5 @@ YYYY-MM-DD
 - Implementing something different from the plan without documenting why
 - Workarounds that bypass the plan silently
 - Deleting any document in this directory
+- Removing services from docker-compose.yml without explicit user approval
+- Building user-facing Gradio frontends (wrap in FastAPI proxy instead)
