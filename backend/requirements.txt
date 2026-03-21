@@ -8,3 +8,4 @@ pydub
 docker
 psutil
 python-multipart
+beautifulsoup4

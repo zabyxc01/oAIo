@@ -6,6 +6,10 @@ tier is active for that path. This module auto-detects a safe ceiling based
 on total system RAM, manages /dev/shm directories, tracks usage across all
 active pools, and emits alerts in the same format as VRAM alerts.
 
+Safety: on startup, recover_dangling() checks every path in paths.json.
+If a symlink points to a dead /dev/shm path (wiped by reboot/crash), it
+reverts to default_target automatically. No data loss, no manual fix.
+
 Ceiling formula:
   total_ram - max(8 GB, total_ram * 0.25)
   e.g. 62 GB machine → ~46 GB ceiling
@@ -18,12 +22,15 @@ SAM (Resizable BAR) note:
   for model weights — load from /dev/shm → GPU avoids PCIe bouncing through
   the 256 MB legacy BAR aperture.
 """
+import json
 import os
 import shutil
 from pathlib import Path
 
 _SHM_ROOT   = Path("/dev/shm")
 _SHM_PREFIX = "oaio-"
+_CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+_PATHS_FILE = _CONFIG_DIR / "paths.json"
 
 WARN_THRESHOLD = 0.85
 HARD_THRESHOLD = 0.95
@@ -77,6 +84,79 @@ def deactivate(name: str, move_to: str | None = None) -> dict:
 
     shutil.rmtree(p, ignore_errors=True)
     return {"ok": True, "moved_files": moved}
+
+
+def deactivate_all() -> list[dict]:
+    """
+    Deactivate ALL active RAM tier pools, reverting symlinks to default_target.
+    Called on clean shutdown.
+    """
+    results = []
+    try:
+        cfg = json.loads(_PATHS_FILE.read_text())
+    except Exception:
+        return results
+
+    for name, entry in cfg.items():
+        link = Path(entry.get("link", ""))
+        default = entry.get("default_target", "")
+        if not link.is_symlink() or not default:
+            continue
+        try:
+            target = os.readlink(str(link))
+        except OSError:
+            continue
+        if target.startswith(f"{_SHM_ROOT}/{_SHM_PREFIX}"):
+            result = _revert_to_default(name, link, default)
+            results.append(result)
+    return results
+
+
+def recover_dangling() -> list[dict]:
+    """
+    Startup safety — find symlinks pointing to dead /dev/shm paths and
+    revert them to their default_target from paths.json.
+
+    Call this once at startup. Handles crash, reboot, force-kill — any
+    scenario where /dev/shm was wiped without a clean deactivate.
+    """
+    recovered = []
+    try:
+        cfg = json.loads(_PATHS_FILE.read_text())
+    except Exception as e:
+        print(f"[ram_tier] recover: cannot read paths.json: {e}")
+        return recovered
+
+    for name, entry in cfg.items():
+        link = Path(entry.get("link", ""))
+        default = entry.get("default_target", "")
+        if not default:
+            continue
+        if not link.is_symlink():
+            continue
+        try:
+            target = os.readlink(str(link))
+        except OSError:
+            continue
+        # Only recover links that point to /dev/shm/oaio-* but the dir is gone
+        if target.startswith(f"{_SHM_ROOT}/{_SHM_PREFIX}") and not Path(target).exists():
+            result = _revert_to_default(name, link, default)
+            recovered.append(result)
+
+    return recovered
+
+
+def _revert_to_default(name: str, link: Path, default: str) -> dict:
+    """Repoint a symlink from dead /dev/shm back to its default_target."""
+    try:
+        old_target = os.readlink(str(link))
+        link.unlink()
+        link.symlink_to(default)
+        print(f"[ram_tier] recovered '{name}': {old_target} → {default}")
+        return {"name": name, "old": old_target, "new": default, "ok": True}
+    except Exception as e:
+        print(f"[ram_tier] recover '{name}' FAILED: {e}")
+        return {"name": name, "error": str(e), "ok": False}
 
 
 def get_usage() -> dict:

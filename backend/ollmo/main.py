@@ -227,6 +227,16 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # Recover RAM tier symlinks pointing to dead /dev/shm (reboot/crash recovery)
+    try:
+        from core.ram_tier import recover_dangling as _ram_recover
+        recovered = _ram_recover()
+        if recovered:
+            print(f"[oAIo] RAM tier recovered {len(recovered)} symlinks: "
+                  + ", ".join(r['name'] for r in recovered if r.get('ok')))
+    except Exception as e:
+        print(f"[oAIo] RAM tier recovery failed: {e}")
+
     enforcer.enforcer_enabled = True
 
     asyncio.create_task(_rvc_startup_refresh())
@@ -234,6 +244,16 @@ async def lifespan(app: FastAPI):
         enforcement_loop(services_cfg, docker_client, enforcement_mode)
     )
     yield
+
+    # Clean shutdown: revert all RAM tier symlinks to persistent storage
+    try:
+        from core.ram_tier import deactivate_all as _ram_deactivate_all
+        reverted = _ram_deactivate_all()
+        if reverted:
+            print(f"[oAIo] RAM tier shutdown: reverted {len(reverted)} symlinks")
+    except Exception as e:
+        print(f"[oAIo] RAM tier shutdown failed: {e}")
+
     task.cancel()
     try:
         await task

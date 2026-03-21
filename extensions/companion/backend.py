@@ -176,7 +176,7 @@ def _load_state() -> dict:
             pass
     return {
         "config": {
-            "ollama_model": "gemma3:latest",  # default model
+            "ollama_model": "qwen2.5:7b",  # default model
             "tts_voice": "af_heart",
             "system_prompt": (
                 "Your name is Kira. You are a desktop companion AI with an anime avatar. "
@@ -512,149 +512,28 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
     # ── Persona-aware prompt building ──
     await _ensure_persona()
 
-    # ── Deterministic answers: bypass LLM for questions with objective answers ──
-    _time_match = re.search(
-        r'\b(what time|what\'s the time|current time|tell me (?:the )?time|what day|what date|what\'s today)\b',
-        user_text, re.IGNORECASE,
-    )
-    if _time_match:
-        import os
-        from zoneinfo import ZoneInfo
-        _tz = os.environ.get("TZ", "America/Indiana/Indianapolis")
-        try:
-            from datetime import datetime
-            _now = datetime.now(ZoneInfo(_tz))
-        except Exception:
-            from datetime import datetime
-            _now = datetime.now()
-        time_str = _now.strftime("%A, %B %d at %H:%M")
-        confirm_text = f"[relaxed:0.5] It's {time_str}."
-        emotion_data = _detect_emotion(confirm_text)
-        display_text = _clean_for_display(confirm_text)
-        tts_text = _clean_for_tts(confirm_text)
-        if _persona_enabled and _persona_matrix._loaded:
-            _persona_matrix.record_exchange("user", user_text, source="chat")
-            _persona_matrix.record_exchange("assistant", display_text, "relaxed", source="chat")
-        await ws.send_text(_msg("chat.response", {
-            "text": display_text,
-            "done": True,
-            "emotion": emotion_data,
-            "debug": {"rag_source": "time (deterministic)", "rag_confidence": 1.0, "rag_personal": False, "rag_objective": True, "rag_docs_len": 0, "git_context": False, "persona_enabled": _persona_enabled, "priority": _persona_priority, "model": "bypass", "temperature": "n/a", "num_ctx": 0, "emotion_detected": "relaxed:0.5", "mood": _emotion_state.mood, "narrative_exchanges": len(_persona_matrix.narrative.exchanges) if _persona_matrix._loaded else 0, "tts_engine": cfg.get("tts_engine", "kokoro")},
-        }, msg_id))
-        if tts_text:
-            await _generate_and_send_tts(ws, tts_text, msg_id)
-        return
-
-    # ── Note detection: "remember that X" / "remember: X" / "note: X" ──
+    # ── Note detection: save note, then let LLM respond naturally ──
     _note_match = re.match(
         r'(?:remember\s+that\s+|remember:\s*|note:\s*)(.+)',
         user_text, re.IGNORECASE,
     )
     if _note_match and _rag_router and _rag_router.notes and cfg.get("rag_notes_enabled", True):
         note_text = _note_match.group(1).strip()
-        # Use first few words as key, full text as value
         key_words = note_text.split()[:5]
         key = " ".join(key_words)
         _rag_router.notes.add(key, note_text)
-        # Respond with confirmation — skip LLM call
-        confirm_text = f"[happy:0.7] Got it, I'll remember that."
-        emotion_data = _detect_emotion(confirm_text)
-        display_text = _clean_for_display(confirm_text)
-        tts_text = _clean_for_tts(confirm_text)
-        if _persona_enabled and _persona_matrix._loaded:
-            _persona_matrix.record_exchange("user", user_text, source="chat")
-            _persona_matrix.record_exchange("assistant", display_text, "happy", source="chat")
-        await ws.send_text(_msg("chat.response", {
-            "text": display_text,
-            "done": True,
-            "emotion": emotion_data,
-            "debug": {"rag_source": "notes (deterministic save)", "rag_confidence": 1.0, "rag_personal": True, "rag_objective": False, "rag_docs_len": 0, "git_context": False, "persona_enabled": _persona_enabled, "priority": _persona_priority, "model": "bypass", "temperature": "n/a", "num_ctx": 0, "emotion_detected": "happy:0.7", "mood": _emotion_state.mood, "narrative_exchanges": len(_persona_matrix.narrative.exchanges) if _persona_matrix._loaded else 0, "tts_engine": cfg.get("tts_engine", "kokoro")},
-        }, msg_id))
-        if tts_text:
-            await _generate_and_send_tts(ws, tts_text, msg_id)
-        return
+        print(f"[companion] note saved: '{key}'")
+        # Inject system note into user message so LLM responds naturally
+        user_text = f"[System: Note saved: '{note_text}']\n{user_text}"
 
-    # ── Explicit web search: "search for X" / "look up X" / "google X" ──
-    _search_match = re.match(
-        r'(?:search\s+(?:for\s+)?|look\s+up\s+|google\s+|web\s+search\s+)(.+)',
-        user_text, re.IGNORECASE,
-    )
-    if _search_match and _rag_router and cfg.get("rag_web_search_enabled", True):
-        search_query = _search_match.group(1).strip()
-        print(f"[companion] explicit web search: '{search_query}'")
-        try:
-            _tools_mod = _rag_mod._tools_mod
-            web_results = await _tools_mod.search_web(search_query, max_results=3)
-            valid = [r for r in web_results if "error" not in r]
-            if valid:
-                # Format results
-                docs = "\n".join(f"- {r['title']}: {r['content']} ({r['url']})" for r in valid)
-                # Save top result to notes for future recall
-                if _rag_router.notes:
-                    top = valid[0]
-                    _rag_router.notes.add(search_query, f"{top['title']}: {top['content']} (source: {top['url']})")
-                    print(f"[companion] saved search result to notes: '{search_query}'")
-                # Send as RAG context
-                _knowledge_context = f"[Source: LIVE WEB SEARCH (retrieved just now, cite URLs)]\n{docs}"
-                # Build prompt, inject results, call LLM
-                if _persona_enabled and _persona_matrix._loaded:
-                    system_prompt = _persona_matrix.build_prompt(
-                        priority=_persona_priority, observation=context, skip_narrative=True)
-                else:
-                    system_prompt = cfg["system_prompt"]
-                system_prompt += "\n\n" + _EMOTION_TAG_INSTRUCTION
-                messages = [{"role": "system", "content": system_prompt}]
-                messages.append({"role": "user", "content": (
-                    "[FACTUAL LOOKUP — OBJECTIVITY REQUIRED]\n"
-                    "The following data was retrieved from external sources. "
-                    "You MUST:\n"
-                    "1. State the facts EXACTLY as provided — do not paraphrase, round, or embellish\n"
-                    "2. Name the source (e.g. 'According to web search...')\n"
-                    "3. If the data doesn't answer the question, say you don't know — do NOT guess\n"
-                    "4. Keep your personality in the delivery, but the FACTS must be untouched\n\n"
-                    + _knowledge_context
-                    + "\n\n[Question]\n" + search_query
-                )})
-                opts = {"num_ctx": cfg.get("llm_num_ctx", 4096),
-                        "temperature": cfg.get("rag_temperature", 0.2)}
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    r = await client.post(f"{ollama_url}/api/chat",
-                        json={"model": cfg["ollama_model"], "messages": messages,
-                              "stream": False, "options": opts})
-                    r.raise_for_status()
-                    response_text = r.json().get("message", {}).get("content", "")
-                emotion_data = _detect_emotion(response_text)
-                display_text = _clean_for_display(response_text)
-                tts_text = _clean_for_tts(response_text)
-                if _persona_enabled and _persona_matrix._loaded:
-                    _persona_matrix.record_exchange("user", user_text, source="chat")
-                    _persona_matrix.record_exchange("assistant", display_text, emotion_data["primary"], source="chat")
-                await ws.send_text(_msg("chat.response", {
-                    "text": display_text, "done": True, "emotion": emotion_data, "factual": True, "objective": True,
-                    "debug": {"rag_source": "web (explicit search)", "rag_confidence": 0.9, "rag_personal": False, "rag_objective": True, "rag_docs_len": len(docs), "git_context": False, "persona_enabled": _persona_enabled, "priority": _persona_priority, "model": cfg.get("ollama_model", "?"), "temperature": cfg.get("rag_temperature", 0.2), "num_ctx": cfg.get("llm_num_ctx", 4096), "emotion_detected": f"{emotion_data['primary']}:{emotion_data['primary_intensity']}", "mood": _emotion_state.mood, "narrative_exchanges": len(_persona_matrix.narrative.exchanges) if _persona_matrix._loaded else 0, "tts_engine": cfg.get("tts_engine", "kokoro")},
-                }, msg_id))
-                if tts_text:
-                    await _generate_and_send_tts(ws, tts_text, msg_id)
-                return
-            else:
-                # Search failed — let her know
-                confirm_text = "[thinking:0.5] I tried searching but didn't get any results. Sorry about that."
-                emotion_data = _detect_emotion(confirm_text)
-                display_text = _clean_for_display(confirm_text)
-                tts_text = _clean_for_tts(confirm_text)
-                if _persona_enabled and _persona_matrix._loaded:
-                    _persona_matrix.record_exchange("user", user_text, source="chat")
-                    _persona_matrix.record_exchange("assistant", display_text, "thinking", source="chat")
-                await ws.send_text(_msg("chat.response", {
-                    "text": display_text, "done": True, "emotion": emotion_data,
-                }, msg_id))
-                if tts_text:
-                    await _generate_and_send_tts(ws, tts_text, msg_id)
-                return
-        except Exception as e:
-            print(f"[companion] explicit web search failed: {e}")
+    # ── Explicit search: force web search on through normal pipeline ──
+    _explicit_search = bool(re.match(
+        r'(?:search\s+(?:for\s+)?|look\s+up\s+|google\s+|web\s+search\s+)',
+        user_text, re.IGNORECASE))
+    if _explicit_search:
+        cfg = {**cfg, "rag_auto_web_search": True}
 
-    # ── RAG router (local sources only — web search disabled in waterfall) ──
+    # ── RAG router ──
     _knowledge_context = ""
     _git_context = ""
     _rag_is_objective = False
@@ -744,6 +623,8 @@ async def _handle_chat_request(ws: WebSocket, msg: dict) -> None:
     try:
         # LLM options from config (adjustable via PATCH /config)
         opts = {"num_ctx": cfg.get("llm_num_ctx", 4096)}
+        if _knowledge_context:
+            opts["num_ctx"] = max(opts["num_ctx"], 8192)
         if _knowledge_context:
             opts["temperature"] = cfg.get("rag_temperature", 0.2)
         else:
@@ -1083,6 +964,37 @@ async def _handle_stt_audio(ws: WebSocket, msg: dict) -> None:
         await _handle_chat_request(ws, chat_msg)
 
 
+def _build_client_config(cfg: dict) -> dict:
+    """Build the config dict sent to clients — single source of truth."""
+    return {
+        "ollama_model": cfg.get("ollama_model", "qwen2.5:7b"),
+        "tts_engine": cfg.get("tts_engine", "kokoro"),
+        "tts_voice": cfg.get("tts_voice", "af_heart"),
+        "vision_model": cfg.get("vision_model", ""),
+        "resource_preset": cfg.get("resource_preset", "optimal"),
+        "rag_auto_web_search": cfg.get("rag_auto_web_search", True),
+        "persona_enabled": _persona_enabled,
+        "persona_priority": _persona_priority,
+    }
+
+
+async def _broadcast_config_update(updated: dict):
+    """Push config changes to all connected WebSocket clients."""
+    if not _connected_clients:
+        return
+    msg = _msg("config.sync", {"updated": updated, "config": _build_client_config(_state["config"])})
+    stale = []
+    for cid, client in _connected_clients.items():
+        ws = client.get("ws")
+        if ws:
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                stale.append(cid)
+    for cid in stale:
+        _connected_clients.pop(cid, None)
+
+
 # ── WebSocket endpoint ───────────────────────────────────────────────────────
 @router.websocket("/ws")
 async def companion_ws(websocket: WebSocket):
@@ -1092,6 +1004,7 @@ async def companion_ws(websocket: WebSocket):
     client_id = uuid.uuid4().hex[:12]
     client_info = {"platform": "unknown", "name": f"companion-{client_id[:6]}"}
     _connected_clients[client_id] = {
+        "ws": websocket,
         "info": client_info,
         "connected_at": time.time(),
     }
@@ -1107,10 +1020,7 @@ async def companion_ws(websocket: WebSocket):
             "kokoro-tts": _get_service_url("kokoro-tts"),
             "faster-whisper": _get_service_url("faster-whisper"),
         },
-        "config": {
-            "model": cfg["ollama_model"],
-            "voice": cfg["tts_voice"],
-        },
+        "config": _build_client_config(cfg),
         "emotion": _emotion_state.to_dict(),
         "persona": {
             "enabled": _persona_enabled,
@@ -1173,7 +1083,7 @@ def get_config():
 
 
 @router.patch("/config")
-def patch_config(body: dict):
+async def patch_config(body: dict):
     cfg = _state["config"]
     allowed = {
         "ollama_model", "tts_voice", "tts_engine", "tts_compress", "tts_mode",
@@ -1186,6 +1096,7 @@ def patch_config(body: dict):
         "rag_knowledge_enabled", "rag_web_search_enabled", "rag_notes_enabled",
         "rag_episodes_enabled", "rag_vision_memory_enabled",
         "rag_git_enabled", "git_repo_path",
+        "rag_auto_web_search",
         # Resource presets
         "resource_preset",
     }
@@ -1196,6 +1107,7 @@ def patch_config(body: dict):
             updated[key] = body[key]
     if updated:
         _save_state(_state)
+        await _broadcast_config_update(updated)
     return {"updated": updated, "config": dict(cfg)}
 
 
@@ -1207,7 +1119,7 @@ _PRESETS = {
         "tts_engine": "indextts",
         "vision_enabled": True,
         "vision_model": "llava:7b",
-        "ollama_models": ["gemma3:latest", "llava:7b"],
+        "ollama_models": ["qwen2.5:7b", "llava:7b"],
     },
     "optimal": {
         "label": "Optimal",
@@ -1215,7 +1127,7 @@ _PRESETS = {
         "tts_engine": "kokoro",
         "vision_enabled": True,
         "vision_model": "llava:7b",
-        "ollama_models": ["gemma3:latest", "llava:7b"],
+        "ollama_models": ["qwen2.5:7b", "llava:7b"],
     },
     "lite": {
         "label": "Lite",
@@ -1223,7 +1135,7 @@ _PRESETS = {
         "tts_engine": "kokoro",
         "vision_enabled": False,
         "vision_model": "",
-        "ollama_models": ["gemma3:latest"],
+        "ollama_models": ["qwen2.5:7b"],
     },
     "gaming": {
         "label": "Gaming",
@@ -1417,7 +1329,7 @@ def add_agent(body: dict):
         return {"error": f"Agent '{name}' already exists"}
     agent = {
         "name": name,
-        "model": body.get("model", "gemma3:latest"),
+        "model": body.get("model", "qwen2.5:7b"),
         "system_prompt": body.get("system_prompt", f"You are {name}."),
     }
     agents.append(agent)
@@ -1540,7 +1452,7 @@ async def _handle_chat_multi(ws: WebSocket, msg: dict) -> None:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 r = await client.post(
                     f"{ollama_url}/api/chat",
-                    json={"model": agent.get("model", "gemma3:latest"), "messages": messages, "stream": False},
+                    json={"model": agent.get("model", "qwen2.5:7b"), "messages": messages, "stream": False},
                 )
                 r.raise_for_status()
                 return r.json().get("message", {}).get("content", "")

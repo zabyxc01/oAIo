@@ -132,11 +132,6 @@ class RagRouter:
             print(f"[rag] skipped: priority {priority} < min {min_priority}")
             return result
 
-        # Time/date questions are handled by the persona's time awareness — skip all RAG
-        if self._SELF_ANSWERABLE_RE.search(query):
-            print(f"[rag] skipped: self-answerable")
-            return result
-
         # ── 1. Knowledge docs (ChromaDB) ──
         print(f"[rag] 1/5 knowledge: client={'YES' if self._knowledge else 'NO'} enabled={cfg.get('rag_knowledge_enabled', True)}")
         if self._knowledge and cfg.get("rag_knowledge_enabled", True):
@@ -206,9 +201,9 @@ class RagRouter:
                 print(f"[rag] HIT vision ({len(visions)} matches)")
                 return self._maybe_add_git(result, priority, cfg)
 
-        # ── 5. Web search (disabled in waterfall — user triggers explicitly via "search for X") ──
+        # ── 5. Web search (auto-triggers for factual questions) ──
         _is_factual = self._is_factual_question(query)
-        _auto_web = cfg.get("rag_auto_web_search", False)  # default OFF — user triggers via "search for X"
+        _auto_web = cfg.get("rag_auto_web_search", True)
         print(f"[rag] 5/5 web: auto={_auto_web} factual={_is_factual}")
         if _auto_web and _is_factual:
             try:
@@ -218,10 +213,13 @@ class RagRouter:
                 valid = [r for r in web_results if "error" not in r]
                 print(f"[rag] 5/5 web: {len(web_results)} raw, {len(valid)} valid")
                 if valid:
-                    docs = "\n".join(
-                        f"- {r['title']}: {r['content']} ({r['url']})"
-                        for r in valid
-                    )
+                    docs_lines = []
+                    for r in valid:
+                        line = f"- {r['title']}: {r['content']} ({r['url']})"
+                        if r.get('page_content'):
+                            line += f"\n  Full excerpt: {r['page_content'][:1500]}"
+                        docs_lines.append(line)
+                    docs = "\n".join(docs_lines)
                     result.source = "web"
                     result.personal = False  # objective
                     result.docs = self._format_docs("web search", docs)
@@ -234,16 +232,7 @@ class RagRouter:
         # ── 6. Git context (standalone if priority high enough) ──
         return self._maybe_add_git(result, priority, cfg)
 
-    # Questions the persona can answer from its own system prompt — no RAG needed
-    _SELF_ANSWERABLE_RE = re.compile(
-        r'\b(what time|what\'s the time|current time|what day)\b',
-        re.IGNORECASE,
-    )
-
     def _is_factual_question(self, text: str) -> bool:
-        # Time/date questions are answered by the persona's time awareness
-        if self._SELF_ANSWERABLE_RE.search(text):
-            return False
         # Conversational questions are not factual lookups
         if _CONVERSATIONAL_RE.search(text):
             return False

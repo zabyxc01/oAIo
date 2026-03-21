@@ -106,6 +106,18 @@ class NarrativeBuffer:
         re.IGNORECASE,
     )
 
+    # Years before 2025 in exchange text indicate hallucinated/stale data
+    _STALE_YEAR_RE = re.compile(
+        r'\b(20[01][0-9]|202[0-4])\b',
+    )
+
+    @classmethod
+    def _is_stale_content(cls, text: str) -> bool:
+        """Check if exchange text contains stale time refs or pre-2025 years."""
+        if cls._STALE_RE.search(text):
+            return True
+        return bool(cls._STALE_YEAR_RE.search(text))
+
     def get_context(self, max_tokens_hint: int = 800) -> str:
         """Build narrative context string for prompt injection.
 
@@ -128,7 +140,7 @@ class NarrativeBuffer:
         meaningful = [
             ex for ex in self.exchanges
             if ex.get("source", "chat") in self.NARRATIVE_SOURCES
-            and not self._STALE_RE.search(ex.get("text", ""))
+            and not self._is_stale_content(ex.get("text", ""))
         ]
         for ex in meaningful[-self.max_exchanges:]:
             prefix = "You said" if ex["role"] == "assistant" else "They said"
@@ -447,7 +459,7 @@ class PersonaMatrix:
         except Exception:
             now = datetime.now()
         sections.append(
-            f"Current time: {now.strftime('%A, %B %d at %H:%M')}. "
+            f"Current time: {now.strftime('%A, %B %d, %Y at %H:%M')}. "
             "This is the ACTUAL current time — ignore any different timestamps "
             "from conversation history above."
         )
