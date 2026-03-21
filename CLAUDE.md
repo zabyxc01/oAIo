@@ -23,7 +23,7 @@
 
 ---
 
-## What This Is
+## What This Is (original build context — see Updates section at bottom for current state)
 
 oAIo is a local AI workstation orchestration platform. Not an AI tool — the layer that makes all AI tools aware of each other, enforces shared GPU/RAM constraints, and presents 10 Docker containers as one coherent system.
 
