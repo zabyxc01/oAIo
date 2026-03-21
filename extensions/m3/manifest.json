@@ -9,7 +9,7 @@
     "prefix": "/extensions/m3"
   },
   "frontend": {
-    "nodes": ["nodes.js"]
+    "nodes": []
   },
   "services": []
 }

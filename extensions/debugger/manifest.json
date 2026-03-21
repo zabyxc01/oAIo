@@ -9,7 +9,7 @@
     "prefix": "/extensions/debugger"
   },
   "frontend": {
-    "nodes": ["nodes.js"]
+    "nodes": []
   },
   "services": []
 }

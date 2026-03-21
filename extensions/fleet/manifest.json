@@ -1,7 +1,7 @@
 {
   "name": "fleet",
   "version": "0.1.0",
-  "description": "Multi-node orchestration — register remote oAIo instances and dispatch jobs",
+  "description": "Multi-node orchestration \u2014 register remote oAIo instances and dispatch jobs",
   "author": "oAIo",
   "enabled": true,
   "backend": {
@@ -9,7 +9,7 @@
     "prefix": "/extensions/fleet"
   },
   "frontend": {
-    "nodes": ["nodes.js"]
+    "nodes": []
   },
   "services": []
 }

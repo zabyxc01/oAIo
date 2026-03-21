@@ -1,7 +1,7 @@
 {
   "name": "companion",
   "version": "0.1.0",
-  "description": "Companion client relay — desktop + phone AI assistant pipeline",
+  "description": "Companion client relay \u2014 desktop + phone AI assistant pipeline",
   "author": "oAIo",
   "enabled": true,
   "backend": {
@@ -9,7 +9,7 @@
     "prefix": "/extensions/companion"
   },
   "frontend": {
-    "nodes": ["nodes.js"]
+    "nodes": []
   },
   "services": []
 }

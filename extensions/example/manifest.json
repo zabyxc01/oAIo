@@ -1,7 +1,7 @@
 {
   "name": "example",
   "version": "0.1.0",
-  "description": "Example extension — demonstrates the extension API",
+  "description": "Example extension \u2014 demonstrates the extension API",
   "author": "oAIo",
   "enabled": false,
   "backend": {
@@ -9,7 +9,7 @@
     "prefix": "/extensions/example"
   },
   "frontend": {
-    "nodes": ["nodes.js"]
+    "nodes": []
   },
   "services": []
 }
